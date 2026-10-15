@@ -153,6 +153,30 @@ function NewPassword({ J, onDone }) {
   );
 }
 
+// Apps linked to this journal (CLUB 24E). Shown only when there is one.
+function LinkedApps({ J }) {
+  const [links, setLinks] = useState([]);
+  const load = () => DB.listLinks().then(setLinks).catch(() => setLinks([]));
+  useEffect(() => { load(); }, []);
+  if (!links.length) return null;
+  async function unlink(l) {
+    if (!window.confirm(J.confirmUnlink)) return;
+    try { await DB.unlinkApp(l.club_user); await load(); } catch (e) { /* stays listed */ }
+  }
+  return (
+    <div style={{ ...S.card("#7B9EBE"), padding: "16px 20px" }} data-testid="linkedapps">
+      <div style={S.label}>{J.linkedTitle}</div>
+      {links.map((l) => (
+        <div key={l.club_user} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+          <span style={{ color: "#F0E6CC" }}>✦ {J.linkedClub}</span>
+          <button style={{ ...S.link, fontSize: 12.5, color: "#8A5A50" }} onClick={() => unlink(l)}>{J.unlink}</button>
+        </div>
+      ))}
+      <p style={{ ...S.small, marginTop: 6 }}>{J.linkedHelp}</p>
+    </div>
+  );
+}
+
 function Bars({ title, rows }) {
   const total = rows.reduce((a, r) => a + r.n, 0);
   if (!total) return null;
@@ -190,7 +214,7 @@ function EntryRow({ e, T, J, me, onDelete, canShare, counsel, reload }) {
   return (
     <div style={{ borderTop: "1px solid #1A2840", padding: "14px 0" }} data-testid="entry">
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
-        <span style={{ fontSize: 12, color: "#5A7090" }}>{e.local_date}{e.day_no ? " · " + fmt(J.dayOf, { n: e.day_no }) : ""}{domain ? " · " + domain : ""}</span>
+        <span style={{ fontSize: 12, color: "#5A7090" }}>{e.local_date}{e.day_no ? " · " + fmt(J.dayOf, { n: e.day_no }) : ""}{domain ? " · " + domain : ""}{e.origin === "club24e" ? " · " + J.viaClub : ""}</span>
         {src && <span style={{ fontSize: 11, fontFamily: "monospace", letterSpacing: "0.06em", color: SOURCE_COLOR[src] }}>{T.sources[src]}</span>}
       </div>
       <p style={{ ...S.text, fontSize: 14, display: open ? "block" : "-webkit-box", WebkitLineClamp: open ? "unset" : 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{e.signal}</p>
@@ -383,6 +407,7 @@ export default function JourneyView({ T, J, lang, user, journey, entries, loadin
 
       {user && !loading && <PartnersCard J={J} owned={owned} invites={invites} defaultName={journey && journey.display_name} reload={reload} />}
       {user && !loading && (owned.length > 0 || walking.length > 0) && <EmailNotices J={J} />}
+      {user && !loading && <LinkedApps J={J} />}
 
       {user && !loading && (
         <div style={S.card()}>

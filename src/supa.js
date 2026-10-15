@@ -135,3 +135,7 @@ export async function setEmailPref(on) {
   const c = await sb();
   ok(await c.from("email_prefs").upsert({ notify: on, updated_at: new Date().toISOString() }));
 }
+
+// Apps linked to this journal (COMPASS-05: CLUB 24E).
+export async function listLinks() { const c = await sb(); return ok(await c.from("links").select("club_user,app,email,linked_at")); }
+export async function unlinkApp(clubUser) { const c = await sb(); ok(await c.from("links").delete().eq("club_user", clubUser)); }

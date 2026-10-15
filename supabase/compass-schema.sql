@@ -305,3 +305,58 @@ revoke all on public.notices from anon, authenticated;
 grant select on public.entries, public.partners, public.journeys, public.counsel, public.email_prefs to service_role;
 grant select, insert on public.notices to service_role;
 grant usage, select on sequence public.notices_id_seq to service_role;
+
+-- ============================================================================
+-- COMPASS-05 · One journal with CLUB 24E
+-- A CLUB 24E member links their account to their Attunement Compass journal. Linking needs a 6-digit code
+-- emailed to them, so only the true owner of the email can connect. Signals tested inside CLUB 24E are then
+-- saved to the same journal. Only the server (the bridge function) reads these tables.
+
+-- Where a signal was tested: on attunementcompass.com, or inside CLUB 24E.
+alter table public.entries add column if not exists origin text not null default 'compass';
+do $$ begin
+  alter table public.entries add constraint entries_origin_check check (origin in ('compass', 'club24e'));
+exception when duplicate_object then null; end $$;
+
+create table if not exists public.links (
+  club_user uuid primary key,
+  compass_user uuid not null references auth.users(id) on delete cascade,
+  email text not null,
+  app text not null default 'club24e' check (app in ('club24e')),
+  linked_at timestamptz not null default now()
+);
+create index if not exists links_compass_user on public.links (compass_user);
+alter table public.links enable row level security;
+-- The person can see which apps are linked to their journal, and unlink them.
+drop policy if exists links_own_select on public.links;
+drop policy if exists links_own_delete on public.links;
+create policy links_own_select on public.links for select to authenticated using (compass_user = (select auth.uid()));
+create policy links_own_delete on public.links for delete to authenticated using (compass_user = (select auth.uid()));
+revoke all on public.links from anon, authenticated;
+grant select, delete on public.links to authenticated;
+
+create table if not exists public.link_codes (
+  club_user uuid primary key,
+  email text not null,
+  code_hash text not null,
+  expires_at timestamptz not null,
+  attempts int not null default 0,
+  sends int not null default 1,
+  window_start timestamptz not null default now()
+);
+alter table public.link_codes enable row level security;
+revoke all on public.link_codes from anon, authenticated;
+
+-- Find a Compass account by email (server only).
+create or replace function public.compass_user_by_email(p_email text) returns uuid
+language sql stable security definer set search_path = public, auth as $$
+  select id from auth.users where lower(email) = lower(trim(p_email)) limit 1;
+$$;
+revoke all on function public.compass_user_by_email(text) from public, anon, authenticated;
+grant execute on function public.compass_user_by_email(text) to service_role;
+
+grant select, insert, delete on public.links, public.link_codes to service_role;
+grant update on public.link_codes to service_role;
+grant select, insert on public.journeys to service_role;
+grant insert, update on public.entries to service_role;
+grant select on public.reflections to service_role;

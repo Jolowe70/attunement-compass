@@ -12,6 +12,11 @@
   status = 200
 
 [[redirects]]
+  from = "/api/bridge"
+  to = "/.netlify/functions/bridge"
+  status = 200
+
+[[redirects]]
   from = "/api/notify"
   to = "/.netlify/functions/notify"
   status = 200

@@ -46,6 +46,24 @@ The ebook says to use the Compass daily for at least thirty days, and that the t
 - **Forgot password?** sends a reset link. Unknown emails get the same message, so no one can find out who has an account. The link opens a "Set a new password" screen.
 - The guide function now uses Node `https`, retries once quietly on a timeout, and has `/api/health`.
 
+## COMPASS-05 · One journal with CLUB 24E
+
+A CLUB 24E member can link their account to their Attunement Compass journal. From then on, every signal they test inside CLUB 24E is saved to the same journal: the same 30 days, the same partners, the same steps.
+
+- **The bridge** (`netlify/functions/bridge.mjs`, at `/api/bridge`) lives here, so the Compass's secret keys never leave this site. It:
+  - checks the CLUB 24E sign-in with CLUB 24E's own Supabase (its public address and public key);
+  - links an account only after the person types a **6-digit code emailed to them** (stored only in scrambled form, valid for 15 minutes, 5 tries, 3 codes an hour). That proves the email is theirs, so no one can reach someone else's journal by signing up to CLUB 24E with their email;
+  - joins their existing Compass account with that email, or opens one if there is none (they can set a password later with "Forgot password?");
+  - saves entries for them, working out the day and stage itself, and checks that every step change is on their own entry;
+  - sends the partner notice when they share from CLUB 24E;
+  - answers only CLUB 24E's web addresses (`BRIDGE_ORIGINS`).
+- **Journal entries** show "via CLUB 24E" when they were tested there (new `origin` column).
+- **My Journey → Linked apps** shows the link, with **Unlink**. Unlinking stops saving; the journal stays.
+
+**Setup:** run `supabase/compass-schema.sql` again. There are no new Netlify settings: it uses `SUPABASE_SERVICE_ROLE_KEY` and `RESEND_API_KEY` from COMPASS-04. Optional settings:
+- `CLUB24E_SUPABASE_URL` (default: the club24e project);
+- `BRIDGE_ORIGINS` (default: `https://club24e.com`, `https://www.club24e.com`, and the Netlify address).
+
 ## COMPASS-04 · Email notices
 
 - **Who gets an email:**

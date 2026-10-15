@@ -4,6 +4,8 @@ Please ask a native speaker who knows the Bible in each language to read every S
 - the `UI_TEXT` block (the original wording);
 - the `EXTRA` block (new in COMPASS-01).
 
+**New in COMPASS-05:** the Linked apps wording (`linkedTitle` in `src/strings-journey.js`).
+
 **New in COMPASS-04:** the notice emails (`TEMPLATES` in `netlify/functions/notify.mjs`) and the Email notices setting (`emailTitle` in `src/strings-journey.js`).
 
 **New in COMPASS-03:** the partner and invitation wording (search `partnersTitle` in `src/strings-journey.js`), including the invitation message people send on WhatsApp.
