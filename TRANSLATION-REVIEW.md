@@ -4,6 +4,8 @@ Please ask a native speaker who knows the Bible in each language to read every S
 - the `UI_TEXT` block (the original wording);
 - the `EXTRA` block (new in COMPASS-01).
 
+**New in COMPASS-02:** every journey screen is in `src/strings-journey.js`. This includes the four test questions people answer themselves, the step follow-up, and the grace message. If any word is missing, English is shown instead.
+
 ## Fixed in COMPASS-01
 - Yoruba prayer heading: "Ìpàdé" (meeting) → "Àdúrà" (prayer).
 - Yoruba "Begin a New Session": "Bẹ̀rẹ̀ Ìpàdé Tuntun" → "Bẹ̀rẹ̀ Ìdánwò Tuntun".

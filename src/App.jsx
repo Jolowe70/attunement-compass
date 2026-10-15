@@ -1,9 +1,15 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import * as Bible from "./bible.js";
+import PassageCard, { lookupPassages } from "./PassageCard.jsx";
+import JourneyView, { StepCheck, S } from "./Journey.jsx";
+import * as DB from "./supa.js";
+import { journeyState, pendingStep, selfSource, localDate, DOMAIN_KEYS, TEST_KEYS } from "./journey.js";
+import { journeyText, fmt } from "./strings-journey.js";
+import { crisisWords } from "./crisis.js";
 
 // The guide runs on the server (netlify/functions/compass.mjs). The browser sends only the
 // person's words; the prompts and the key never leave the server.
-async function askCompass(payload) {
+async function askCompass(payload, retry = true) {
   let resp;
   try {
     resp = await fetch("/api/compass", {
@@ -15,12 +21,15 @@ async function askCompass(payload) {
     throw new Error("network");
   }
   const data = await resp.json().catch(() => ({}));
-  if (!resp.ok || !data.ok) throw new Error(data.error || "upstream");
+  if (!resp.ok || !data.ok) {
+    const code = data.error || "upstream";
+    if (retry && (code === "timeout" || code === "unreadable")) return askCompass(payload, false); // one quiet retry
+    throw new Error(code);
+  }
   return data.result;
 }
 
 const DONATE_URL = "https://www.paypal.com/donate/?hosted_button_id=MWQHNBSUBX396";
-const DOMAIN_KEYS = ["relationships", "work", "inner", "social", "financial", "health", "ministry", "family", "other"];
 const COME_UNTO_ME = { ref: "Matthew 11:28", text: "Come unto me, all ye that labour and are heavy laden, and I will give you rest." };
 
 // Words added in COMPASS-01. Spanish, French, Yoruba, Igbo and Hausa need a native speaker's review (see TRANSLATION-REVIEW.md).
@@ -486,53 +495,7 @@ function TypingText({ text, speed = 16 }) {
 const RESULT_COLOR = { aligned: "#82C9A0", misaligned: "#E07B6A", unclear: "#C9A84C" };
 const SOURCE_COLOR = { truth: "#82C9A0", error: "#E07B6A", unclear: "#C9A84C" };
 
-// One passage: the exact KJV words from /kjv, why it speaks to this signal, and the whole chapter on request.
-function PassageCard({ p, T }) {
-  const [chapter, setChapter] = useState(null);
-  const [open, setOpen] = useState(false);
-  const boxRef = useRef(null);
-  useEffect(() => {
-    // Open the chapter at the passage itself, not at verse 1.
-    const box = boxRef.current;
-    if (!open || !box) return;
-    const first = box.querySelector("[data-hl]");
-    if (first) box.scrollTop = Math.max(0, first.offsetTop - 12);
-  }, [open, chapter]);
-  async function toggle() {
-    if (open) { setOpen(false); return; }
-    if (!chapter) {
-      try {
-        const c = await Bible.passage({ ...p.ref, v1: 0, v2: 0 }, 200);
-        if (c.ok) setChapter(c);
-      } catch (e) { return; }
-    }
-    setOpen(true);
-  }
-  const verseStyle = { margin: "0 0 6px", fontSize: 15.5, color: "#B8C9E0", lineHeight: 1.82, fontStyle: "italic" };
-  const num = (n) => <sup style={{ color: "#7B9EBE", fontStyle: "normal", fontSize: 10.5, marginRight: 4 }}>{n}</sup>;
-  return (
-    <div style={{ border: "1px solid #7B9EBE33", borderRadius: 14, padding: "20px 22px", background: "#7B9EBE07", marginBottom: 12 }}>
-      <div style={{ fontFamily: "'Cormorant Garamond',serif", fontSize: 18, color: "#7B9EBE", marginBottom: 8 }}>{p.label} <span style={{ fontSize: 12, color: "#4A6080" }}>· KJV</span></div>
-      {!open && p.verses.map(([n, text]) => <p key={n} style={verseStyle}>{num(n)}{text}</p>)}
-      {open && chapter && (
-        <div ref={boxRef} style={{ position: "relative", maxHeight: 420, overflowY: "auto", paddingRight: 6, margin: "4px 0 6px" }}>
-          {chapter.verses.map(([n, text]) => {
-            const hl = n >= p.ref.v1 && n <= p.ref.v2;
-            return <p key={n} data-hl={hl ? "1" : undefined} style={{ ...verseStyle, fontStyle: "normal", fontSize: 15, color: hl ? "#F0E6CC" : "#8A9EC0", background: hl ? "#C9A84C14" : "transparent", borderLeft: hl ? "2px solid #C9A84C" : "2px solid transparent", padding: "2px 8px", margin: 0 }}>{num(n)}{text}</p>;
-          })}
-        </div>
-      )}
-      {p.why && <p style={{ margin: "6px 0 10px", fontSize: 13.5, color: "#8A9EC0", lineHeight: 1.65, borderTop: "1px solid #1E2D4A", paddingTop: 10 }}>{p.why}</p>}
-      {p.ref.v1 > 0 && (
-        <button onClick={toggle} style={{ background: "transparent", border: "none", padding: 0, color: "#C9A84C", fontSize: 13, fontFamily: "'Lora',serif", textDecoration: "underline", cursor: "pointer" }}>
-          {open ? T.hideChapter : T.readChapter}
-        </button>
-      )}
-    </div>
-  );
-}
-
-function TestCard({ label, content, index, aligned, misaligned, unclear }) {
+function TestCard({ label, content, index, aligned, misaligned, unclear, mine, youLabel, question }) {
   const [visible, setVisible] = useState(false);
   useEffect(() => {
     const t = setTimeout(() => setVisible(true), index * 280 + 150);
@@ -555,8 +518,13 @@ function TestCard({ label, content, index, aligned, misaligned, unclear }) {
           {result === "aligned" ? aligned : result === "misaligned" ? misaligned : unclear}
         </span>
       </div>
+      {mine && (
+        <div style={{ fontSize: 11.5, color: RESULT_COLOR[mine], marginBottom: 6, fontFamily: "monospace", letterSpacing: "0.06em" }}>
+          {youLabel}: {mine === "aligned" ? aligned : mine === "misaligned" ? misaligned : unclear}
+        </div>
+      )}
       <p style={{ margin: 0, color: "#B8C9E0", fontSize: 14.5, lineHeight: 1.72, fontFamily: "'Lora',serif" }}>
-        {content ? content.analysis : ""}
+        {content ? content.analysis : question || ""}
       </p>
     </div>
   );
@@ -637,6 +605,33 @@ function LanguagePicker({ lang, setLang }) {
   );
 }
 
+// Days 11–30: the person answers the four tests before (or instead of) the guide.
+function SelfTests({ T, J, my, setMy, onSubmit, error }) {
+  const opts = [["aligned", J.passes, "#82C9A0"], ["misaligned", J.fails, "#E07B6A"], ["unclear", J.notSure, "#C9A84C"]];
+  return (
+    <div data-testid="selftests">
+      <div style={S.label}>{J.yourTests}</div>
+      <p style={{ ...S.small, marginBottom: 14 }}>{J.yourTestsHelp}</p>
+      {T.tests.map((t) => (
+        <div key={t.key} style={{ border: "1px solid #1E2D4A", borderRadius: 12, padding: "16px 18px", marginBottom: 12, background: "#0D1829" }}>
+          <div style={{ fontFamily: "'Cormorant Garamond',serif", fontSize: 14, color: "#8A9EC0", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6 }}>{t.label}</div>
+          <p style={{ margin: "0 0 12px", fontSize: 14.5, color: "#B8C9E0", lineHeight: 1.65 }}>{J.testQ[t.key]}</p>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }} role="radiogroup" aria-label={t.label}>
+            {opts.map(([v, l, c]) => (
+              <button key={v} role="radio" aria-checked={my[t.key] === v} data-test={t.key} data-v={v} onClick={() => setMy({ ...my, [t.key]: v })}
+                style={{ flex: "1 1 80px", background: my[t.key] === v ? c + "22" : "transparent", border: "1px solid " + (my[t.key] === v ? c : "#1E2D4A"), borderRadius: 8, padding: "9px 6px", color: my[t.key] === v ? c : "#8A9EC0", fontSize: 13.5, fontFamily: "'Lora',serif", cursor: "pointer" }}>
+                {l}
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+      {error && <p style={{ color: "#E07B6A", fontSize: 13.5, marginBottom: 14 }}>{error}</p>}
+      <button onClick={onSubmit} style={{ ...S.btn("#C9A84C", true), marginBottom: 8 }}>{J.seeResult}</button>
+    </div>
+  );
+}
+
 export default function App() {
   const [lang, setLang] = useState("en");
   const [stageIndex, setStageIndex] = useState(0);
@@ -650,6 +645,52 @@ export default function App() {
   const [error, setError] = useState("");
   const [session, setSession] = useState({});
   const topRef = useRef(null);
+
+  // The 30-Day Attunement
+  const [view, setView] = useState("compass");
+  const [user, setUser] = useState(null);
+  const [journey, setJourney] = useState(null);
+  const [entries, setEntries] = useState([]);
+  const [jLoading, setJLoading] = useState(false);
+  const [jError, setJError] = useState("");
+  const [saveOn, setSaveOn] = useState(true);
+  const [saveMsg, setSaveMsg] = useState("");
+  const [myTests, setMyTests] = useState({});
+  const [mySource, setMySource] = useState(null);
+  const [selfOpen, setSelfOpen] = useState(false);
+  const J = journeyText(lang);
+  const jstate = journeyState(journey, entries);
+  const todayMode = user && journey && jstate && !jstate.complete ? jstate.mode : "guided";
+  const step = user ? pendingStep(entries) : null;
+
+  async function reloadJourney() {
+    if (!DB.journeyAvailable) return;
+    const u = await DB.currentUser().catch(() => null);
+    if (!u) { setJourney(null); setEntries([]); return; }
+    setJLoading(true);
+    try {
+      const [j, es] = await Promise.all([DB.getJourney(), DB.listEntries()]);
+      setJourney(j); setEntries(es || []); setJError("");
+    } catch (e) {
+      setJError("load"); // keep what we have and say so
+    }
+    setJLoading(false);
+  }
+
+  useEffect(() => {
+    if (!DB.journeyAvailable) return;
+    let stop = () => {};
+    // Coming back from a confirmation email or Google sign-in: open the journey.
+    if (/access_token|error_description|code=/.test(location.hash + location.search)) setView("journey");
+    DB.currentUser().then(setUser).catch(() => {});
+    DB.onAuth((u) => setUser(u)).then((f) => { stop = f; }).catch(() => {});
+    return () => stop();
+  }, []);
+  useEffect(() => { reloadJourney(); }, [user && user.id]);
+
+  function openJourney() { setView("journey"); reloadJourney(); setTimeout(scrollTop, 50); }
+  function testFromJourney() { setView("compass"); reset(); reloadJourney(); }
+  function stepSet(entry, status) { return DB.setStep(entry.id, status); }
 
   const T = { ...UI_TEXT[lang], ...EXTRA[lang] };
   const stage = T.stages[stageIndex];
@@ -672,11 +713,15 @@ export default function App() {
 
   async function runIdentification() {
     if (!signal.trim()) { setError(T.errorSignal); return; }
-    setError(""); setLoading(true); setAnalysisData(null);
-    const s = { signal: signal.trim(), domain: domainKey(domain), pressure };
+    setError(""); setAnalysisData(null); setMySource(null); setMyTests({}); setSaveMsg("");
+    const s = { signal: signal.trim(), domain: domainKey(domain), pressure, mode: todayMode };
     setSession(s);
+    if (crisisWords(s.signal)) { setCrisis(true); setTimeout(scrollTop, 100); return; }
+    // Days 11–30: the person tests first.
+    if (s.mode !== "guided") { setSelfOpen(true); setStageIndex(1); setTimeout(scrollTop, 100); return; }
+    setLoading(true);
     try {
-      const r = await askCompass({ action: "test", lang, ...s });
+      const r = await askCompass({ action: "test", lang, signal: s.signal, domain: s.domain, pressure: s.pressure });
       if (r.crisis) { setCrisis(true); setTimeout(scrollTop, 100); }
       else { setAnalysisData(r); setStageIndex(1); setTimeout(scrollTop, 100); }
     } catch (e) {
@@ -685,20 +730,54 @@ export default function App() {
     setLoading(false);
   }
 
+  async function askGuideTest() {
+    setError(""); setLoading(true);
+    try {
+      const r = await askCompass({ action: "test", lang, signal: session.signal, domain: session.domain, pressure: session.pressure });
+      if (r.crisis) { setCrisis(true); setTimeout(scrollTop, 100); }
+      else setAnalysisData(r);
+    } catch (e) {
+      setError(errorText(T, e, T.errorGeneral));
+    }
+    setLoading(false);
+  }
+
+  async function submitSelf() {
+    if (TEST_KEYS.some((k) => !myTests[k])) { setError(J.answerAll); return; }
+    setError(""); setMySource(selfSource(myTests)); setSelfOpen(false);
+    if (session.mode === "compare") await askGuideTest();
+  }
+
+  async function saveEntry(r) {
+    if (!user || !saveOn) return;
+    const st = jstate;
+    try {
+      await DB.addEntry({
+        local_date: localDate(), round: journey ? journey.round : 1, day_no: st && !st.complete ? st.day : null,
+        mode: session.mode || "guided", domain: session.domain || "", pressure: session.pressure || "", signal: session.signal,
+        source: analysisData ? analysisData.source : null, my_source: mySource, summary: analysisData ? analysisData.summary : null,
+        tests: analysisData ? analysisData.tests : null, my_tests: session.mode !== "guided" ? myTests : null,
+        stance: r.stance, prayer: r.prayer, passages: r.passages, step: r.step, community: r.community,
+      });
+      setSaveMsg(J.saved);
+      reloadJourney();
+    } catch (e) {
+      setSaveMsg(J.errorSave);
+    }
+  }
+
   async function runResponse() {
-    if (!analysisData) return;
+    if (!analysisData && !mySource) return;
+    // On "test on your own" days, the person's own reading leads unless they asked the guide.
+    const src = session.mode === "self" || !analysisData ? mySource : analysisData.source;
     setError(""); setLoading(true); setResponseData(null);
     try {
-      const r = await askCompass({ action: "respond", lang, ...session, source: analysisData.source, summary: analysisData.summary });
+      const r = await askCompass({ action: "respond", lang, signal: session.signal, domain: session.domain, pressure: session.pressure, source: src, summary: analysisData ? analysisData.summary : "" });
       if (r.crisis) { setCrisis(true); setLoading(false); setTimeout(scrollTop, 100); return; }
       // Selah names the passages; the words always come from the bundled King James Bible.
-      const found = (await Promise.all((r.passages || []).map(async (x) => {
-        try {
-          const p = await Bible.passage(x.ref, 8);
-          return p.ok ? { ...p, why: x.why } : null;
-        } catch (e) { return null; }
-      }))).filter(Boolean);
+      const found = await lookupPassages(r.passages, 8);
       setResponseData({ ...r, found });
+      saveEntry(r);
       setStageIndex(2);
       setTimeout(scrollTop, 100);
     } catch (e) {
@@ -710,6 +789,7 @@ export default function App() {
   function reset() {
     setStageIndex(0); setSignal(""); setPressure(""); setDomain(""); setCrisis(false);
     setAnalysisData(null); setResponseData(null); setError(""); setSession({});
+    setMyTests({}); setMySource(null); setSelfOpen(false); setSaveMsg("");
     setTimeout(scrollTop, 100);
   }
 
@@ -746,7 +826,13 @@ export default function App() {
 
         {/* Header */}
         <div style={{ textAlign: "center", paddingTop: 56, paddingBottom: 36, animation: "fadeUp 0.8s ease forwards" }}>
-          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
+          <div style={{ display: "flex", justifyContent: DB.journeyAvailable ? "space-between" : "flex-end", alignItems: "center", gap: 10, marginBottom: 16 }}>
+            {DB.journeyAvailable && (
+              <button onClick={() => (view === "journey" ? testFromJourney() : openJourney())} data-testid="nav-journey"
+                style={{ background: view === "journey" ? "#C9A84C15" : "#0D1829", border: "1px solid #2A3A5C", borderRadius: 8, padding: "6px 14px", color: "#C9A84C", fontSize: 13, fontFamily: "'Cormorant Garamond',serif", cursor: "pointer" }}>
+                {view === "journey" ? "✦ " + J.back : "✦ " + J.navJourney + (jstate && !jstate.complete ? " · " + jstate.day + "/30" : "")}
+              </button>
+            )}
             <LanguagePicker lang={lang} setLang={(l) => { setLang(l); reset(); }} />
           </div>
           <div style={{ letterSpacing: "0.25em", fontSize: 10.5, color: "#4A6080", textTransform: "uppercase", marginBottom: 14, fontFamily: "'Cormorant Garamond',serif" }}>
@@ -762,6 +848,12 @@ export default function App() {
           </p>
         </div>
 
+        {view === "journey" && (
+          <JourneyView T={T} J={J} lang={lang} user={user} error={jError ? J.errorLoad : ""} journey={journey} entries={entries} loading={jLoading}
+            reload={reloadJourney} onBack={testFromJourney} onTest={testFromJourney} onStepSet={stepSet} askCompass={askCompass} />
+        )}
+
+        {view === "compass" && <>
         <ProgressDots stageIndex={stageIndex} />
 
         {crisis && (
@@ -801,6 +893,13 @@ export default function App() {
         {/* STAGE 1 */}
         {!crisis && stageIndex === 0 && (
           <div style={{ animation: "fadeUp 0.45s ease forwards" }}>
+            {user && journey && jstate && !jstate.complete && (
+              <button onClick={openJourney} data-testid="daybanner" style={{ width: "100%", textAlign: "left", cursor: "pointer", border: "1px solid #2A3A5C", borderRadius: 12, padding: "12px 16px", background: "#0D1829", marginBottom: 18 }}>
+                <div style={{ fontFamily: "'Cormorant Garamond',serif", fontSize: 18, color: "#F0E6CC" }}>{fmt(J.dayOf, { n: jstate.day })} · <span style={{ color: { guided: "#C9A84C", compare: "#7B9EBE", self: "#82C9A0" }[jstate.mode] }}>{J.modes[jstate.mode]}</span></div>
+                <div style={{ fontSize: 12.5, color: "#5A7090", marginTop: 3 }}>{J.modeHelp[jstate.mode]}</div>
+              </button>
+            )}
+            {step && <StepCheck key={step.id} entry={step} J={J} onSet={stepSet} />}
             <div style={{ marginBottom: 18 }}>
               <label style={{ display: "block", fontSize: 11, letterSpacing: "0.15em", color: "#5A7090", textTransform: "uppercase", marginBottom: 8, fontFamily: "'Cormorant Garamond',serif" }}>
                 {T.domainLabel}
@@ -836,6 +935,12 @@ export default function App() {
               </div>
             </div>
 
+            {user && (
+              <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13.5, color: "#8A9EC0", marginBottom: 16, cursor: "pointer" }}>
+                <input type="checkbox" checked={saveOn} onChange={(e) => setSaveOn(e.target.checked)} data-testid="saveon" /> {J.saveToJournal}
+              </label>
+            )}
+
             {error && <p style={{ color: "#E07B6A", fontSize: 13.5, marginBottom: 14 }}>{error}</p>}
 
             <button onClick={runIdentification} disabled={loading}
@@ -846,23 +951,48 @@ export default function App() {
         )}
 
         {/* STAGE 2 */}
-        {!crisis && stageIndex === 1 && analysisData && (
+        {!crisis && stageIndex === 1 && selfOpen && (
           <div style={{ animation: "fadeUp 0.45s ease forwards" }}>
-            <div style={{ border: "1px solid " + sourceColor + "44", borderRadius: 14, padding: "20px 22px", background: sourceColor + "0A", marginBottom: 26, textAlign: "center" }}>
-              <div style={{ fontSize: 10.5, letterSpacing: "0.2em", color: "#5A7090", textTransform: "uppercase", marginBottom: 7, fontFamily: "'Cormorant Garamond',serif" }}>{T.sourceLabel}</div>
-              <div style={{ fontFamily: "'Cormorant Garamond',serif", fontSize: 27, color: sourceColor, fontWeight: 400, marginBottom: 9 }}>{T.sources[analysisData.source] || T.sources.unclear}</div>
-              <p style={{ margin: 0, fontSize: 14.5, color: "#8A9EC0", lineHeight: 1.75, fontStyle: "italic" }}>
-                <TypingText text={analysisData.summary} />
-              </p>
-            </div>
+            <SelfTests T={T} J={J} my={myTests} setMy={(m) => { setMyTests(m); setError(""); }} onSubmit={submitSelf} error={error} />
+            <button onClick={reset} style={{ ...S.quiet, width: "100%" }}>{T.startOver}</button>
+          </div>
+        )}
 
-            <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 28 }}>
+        {!crisis && stageIndex === 1 && !selfOpen && (analysisData || mySource) && (
+          <div style={{ animation: "fadeUp 0.45s ease forwards" }}>
+            {mySource && (
+              <div data-testid="mysource" style={{ border: "1px solid " + SOURCE_COLOR[mySource] + "44", borderRadius: 14, padding: "18px 22px", background: SOURCE_COLOR[mySource] + "0A", marginBottom: 14, textAlign: "center" }}>
+                <div style={{ fontSize: 10.5, letterSpacing: "0.2em", color: "#5A7090", textTransform: "uppercase", marginBottom: 7, fontFamily: "'Cormorant Garamond',serif" }}>{J.yourResult}</div>
+                <div style={{ fontFamily: "'Cormorant Garamond',serif", fontSize: 25, color: SOURCE_COLOR[mySource], fontWeight: 400 }}>{T.sources[mySource]}</div>
+              </div>
+            )}
+
+            {analysisData && (
+              <div style={{ border: "1px solid " + sourceColor + "44", borderRadius: 14, padding: "20px 22px", background: sourceColor + "0A", marginBottom: 26, textAlign: "center" }}>
+                <div style={{ fontSize: 10.5, letterSpacing: "0.2em", color: "#5A7090", textTransform: "uppercase", marginBottom: 7, fontFamily: "'Cormorant Garamond',serif" }}>{mySource ? J.guideWord : T.sourceLabel}</div>
+                <div style={{ fontFamily: "'Cormorant Garamond',serif", fontSize: 27, color: sourceColor, fontWeight: 400, marginBottom: 9 }}>{T.sources[analysisData.source] || T.sources.unclear}</div>
+                <p style={{ margin: 0, fontSize: 14.5, color: "#8A9EC0", lineHeight: 1.75, fontStyle: "italic" }}>
+                  <TypingText text={analysisData.summary} />
+                </p>
+              </div>
+            )}
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 20 }}>
               {T.tests.map((t, i) => (
-                <TestCard key={t.key} label={t.label}
-                  content={analysisData.tests ? analysisData.tests[t.key] : null}
+                <TestCard key={t.key + (analysisData ? "g" : "m")} label={t.label}
+                  content={analysisData && analysisData.tests ? analysisData.tests[t.key] : (mySource ? { result: myTests[t.key] } : null)}
+                  mine={analysisData && mySource ? myTests[t.key] : null} youLabel={J.you} question={J.testQ[t.key]}
                   index={i} aligned={T.aligned} misaligned={T.misaligned} unclear={T.unclear} />
               ))}
             </div>
+
+            {analysisData && mySource && <p style={{ margin: "0 0 14px", fontSize: 13, color: "#7B9EBE", lineHeight: 1.65, textAlign: "center" }}>{J.compareNote}</p>}
+
+            {!analysisData && mySource && (
+              <button onClick={askGuideTest} disabled={loading} data-testid="askguide" style={{ ...S.btn("#7B9EBE"), marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+                {loading ? <><Spinner color="#7B9EBE" />{T.testing}</> : J.askGuide}
+              </button>
+            )}
 
             <p style={{ margin: "0 0 18px", fontSize: 12.5, color: "#5A7090", lineHeight: 1.65, fontStyle: "italic", textAlign: "center" }}>{T.humility}</p>
 
@@ -916,15 +1046,32 @@ export default function App() {
             <p style={{ margin: "0 0 18px", fontSize: 12.5, color: "#5A7090", lineHeight: 1.65, fontStyle: "italic", textAlign: "center" }}>{T.humility}</p>
 
             <div style={{ borderRadius: 14, padding: "28px 24px", background: "#0A1520", border: "1px solid #C9A84C33", marginBottom: 16, textAlign: "center" }}>
+              {saveMsg && <p data-testid="savemsg" style={{ margin: "0 0 14px", fontSize: 13, color: saveMsg === J.saved ? "#82C9A0" : "#E07B6A" }}>{saveMsg}</p>}
               <div style={{ fontSize: 10, letterSpacing: "0.28em", color: "#C9A84C77", textTransform: "uppercase", marginBottom: 12, fontFamily: "'Cormorant Garamond',serif" }}>
                 {T.journeyTitle}
               </div>
-              <p style={{ margin: "0 0 4px", fontSize: 20, color: "#F0E6CC", fontFamily: "'Cormorant Garamond',serif", fontWeight: 300, lineHeight: 1.4 }}>
-                {T.journeyLine1}
-              </p>
-              <p style={{ margin: "0 0 18px", fontSize: 15, color: "#C9A84C", fontFamily: "'Cormorant Garamond',serif", fontStyle: "italic" }}>
-                {T.journeyLine2}
-              </p>
+              {DB.journeyAvailable && user && journey && jstate ? (
+                <>
+                  <p style={{ margin: "0 0 4px", fontSize: 20, color: "#F0E6CC", fontFamily: "'Cormorant Garamond',serif", fontWeight: 300, lineHeight: 1.4 }}>{jstate.complete ? J.completeTitle : fmt(J.dayOf, { n: jstate.day })}</p>
+                  <p style={{ margin: "0 0 16px", fontSize: 13.5, color: "#6A80A0" }}>{fmt(J.practiced, { n: jstate.practised })}</p>
+                  <button onClick={openJourney} style={{ ...S.btn("#C9A84C"), width: "auto", padding: "11px 24px", marginBottom: 18 }}>{J.openJourney}</button>
+                </>
+              ) : DB.journeyAvailable ? (
+                <>
+                  <p style={{ margin: "0 0 6px", fontSize: 20, color: "#F0E6CC", fontFamily: "'Cormorant Garamond',serif", fontWeight: 300, lineHeight: 1.4 }}>{J.pitchTitle}</p>
+                  <p style={{ margin: "0 0 16px", fontSize: 13.5, color: "#6A80A0", lineHeight: 1.7 }}>{J.pitch}</p>
+                  <button onClick={openJourney} data-testid="begin-cta" style={{ ...S.btn("#C9A84C"), width: "auto", padding: "11px 24px", marginBottom: 18 }}>{J.begin}</button>
+                </>
+              ) : (
+                <>
+                  <p style={{ margin: "0 0 4px", fontSize: 20, color: "#F0E6CC", fontFamily: "'Cormorant Garamond',serif", fontWeight: 300, lineHeight: 1.4 }}>
+                    {T.journeyLine1}
+                  </p>
+                  <p style={{ margin: "0 0 18px", fontSize: 15, color: "#C9A84C", fontFamily: "'Cormorant Garamond',serif", fontStyle: "italic" }}>
+                    {T.journeyLine2}
+                  </p>
+                </>
+              )}
               <div style={{ width: 40, height: 1, background: "#C9A84C44", margin: "0 auto 18px" }} />
               <p style={{ margin: "0 0 18px", fontSize: 13.5, color: "#6A80A0", fontFamily: "'Lora',serif", lineHeight: 1.75 }}>
                 {T.donateText}
@@ -949,6 +1096,8 @@ export default function App() {
             </div>
           </div>
         )}
+
+        </>}
 
         <div style={{ textAlign: "center", marginTop: 56, paddingTop: 20, borderTop: "1px solid #0F1E30" }}>
           <p style={{ fontSize: 11.5, color: "#2A3A5C", fontFamily: "'Cormorant Garamond',serif", letterSpacing: "0.1em", fontStyle: "italic" }}>

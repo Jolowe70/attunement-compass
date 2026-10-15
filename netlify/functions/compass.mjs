@@ -1,9 +1,11 @@
 // The Attunement Compass guide. The Anthropic key stays on the server, and this function only runs
-// the two Compass steps (test the signal, faithful response) with prompts written here. The browser
+// the Compass steps (test the signal, faithful response, weekly reflection) with prompts written here. The browser
 // sends the person's words, never a prompt, so the key cannot be used for anything else.
 
+import https from 'https';
+
 const MODEL = process.env.COMPASS_MODEL || 'claude-haiku-4-5';
-const TIMEOUT_MS = 9000; // Netlify stops a normal function at 10 seconds.
+const TIMEOUT_MS = 8500; // Netlify stops a normal function at 10 seconds; fail with a real message first.
 
 const LANGS = { en: 'English', es: 'Spanish', fr: 'French', yo: 'Yoruba', ig: 'Igbo', ha: 'Hausa' };
 const DOMAINS = ['relationships', 'work', 'inner', 'social', 'financial', 'health', 'ministry', 'family', 'other', ''];
@@ -14,7 +16,9 @@ const SOURCES = ['truth', 'error', 'unclear'];
 const STANCES = ['refute', 'affirm', 'wait'];
 
 // Languages written with many accent marks use more tokens, so they get more room.
-const BUDGET = { test: { base: 900, heavy: 1400 }, respond: { base: 800, heavy: 1250 } };
+const BUDGET = { test: { base: 900, heavy: 1400 }, respond: { base: 800, heavy: 1250 }, reflect: { base: 700, heavy: 1100 } };
+const ACTIONS = ['test', 'respond', 'reflect'];
+const STEPS = ['pending', 'done', 'not_yet', 'released'];
 const HEAVY = ['yo', 'ig', 'ha'];
 
 const SYSTEM = [
@@ -55,6 +59,14 @@ export function buildPrompt(action, p) {
       'Guide them through Scripture: choose 1 to 3 passages from ANYWHERE in the Bible that speak most truly to this exact signal, read in their own context and never twisted. ' +
       'Give each as a King James reference written in English, in the form "Book Chapter:Verse" or "Book Chapter:Verse-Verse" (at most 8 verses), for example "Psalm 34:17-19" or "1 Peter 5:6-7". Never quote the words.\n' +
       'Return {"stance":"refute|affirm|wait","prayer":"40-80 words the person can pray themselves, first person, addressed to God. For refute: name the lying signal and reject it in the name of Jesus Christ, then receive the truth. For affirm: yield to the Lord and ask grace to obey. For wait: ask for clarity and peace.","passages":[{"ref":"Book C:V-V","why":"2-3 sentences on what the passage says in its context and how it speaks to this signal"}],"step":"ONE concrete step of obedience they can take in the next ten minutes","community":"one sentence on whom to bring this to (their pastor, a mature believer, their church)","encouragement":"1-2 sentences"}';
+  }
+  if (action === 'reflect') {
+    const list = (p.entries || []).map((e, i) => (i + 1) + ') [' + [e.domain || 'unspecified', e.pressure || 'pressure not noted', 'source ' + e.source, 'step ' + e.step].join(', ') + '] ' + e.signal).join('\n');
+    return 'A believer is in week ' + p.week + ' of a 30-day practice of THE ATTUNEMENT COMPASS. Below are the signals they tested this past week, with the life domain, how the signal pressed on them, what the tests suggested, and whether they took their one step. Write every sentence in ' + lang + '.\n' +
+      'Reflect back, gently and plainly, what keeps returning: recurring themes, life domains, rushed versus quiet signals, and the pattern of their obedience. Encourage; never condemn (Romans 8:1). Do not diagnose, and never attribute struggles to evil spirits.\n' +
+      'Guide them to Scripture: choose 1 or 2 passages from ANYWHERE in the Bible, as King James references written in English ("Book Chapter:Verse" or "Book Chapter:Verse-Verse", at most 8 verses). Never quote the words.\n' +
+      'ENTRIES:\n' + list + '\n' +
+      'Return {"themes":["2-4 short phrases"],"reflection":"80-140 words","passages":[{"ref":"Book C:V-V","why":"1-2 sentences on how it speaks to this week"}],"focus":"one simple practice for the week ahead","crisis":false}';
   }
   return null;
 }
@@ -109,6 +121,14 @@ export function shape(action, raw) {
     };
     return out.prayer || out.step ? out : null;
   }
+  if (action === 'reflect') {
+    const passages = (Array.isArray(raw.passages) ? raw.passages : [])
+      .map((x) => ({ ref: txt(x && x.ref, 40).replace(/\s+/g, ' '), why: txt(x && x.why, 500) }))
+      .filter((x) => REF.test(x.ref)).slice(0, 2);
+    const themes = (Array.isArray(raw.themes) ? raw.themes : []).map((t) => txt(t, 80)).filter(Boolean).slice(0, 4);
+    const out = { themes, reflection: txt(raw.reflection, 1200), passages, focus: txt(raw.focus, 300), crisis: raw.crisis === true };
+    return out.reflection ? out : null;
+  }
   return null;
 }
 
@@ -136,19 +156,29 @@ function sameSite(event) {
   } catch (e) { return false; }
 }
 
-export async function callAnthropic(prompt, maxTokens, fetchImpl = fetch) {
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
-  try {
-    const r = await fetchImpl('https://api.anthropic.com/v1/messages', {
-      method: 'POST', signal: ctl.signal,
-      headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: MODEL, max_tokens: maxTokens, system: SYSTEM, messages: [{ role: 'user', content: prompt }] })
+function post(body) {
+  return new Promise((resolve, reject) => {
+    const req = https.request({
+      hostname: 'api.anthropic.com', path: '/v1/messages', method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' }
+    }, (res) => {
+      let data = '';
+      res.on('data', (c) => { data += c; });
+      res.on('end', () => resolve({ status: res.statusCode, body: data }));
     });
-    const data = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error('upstream ' + r.status + (data.error && data.error.message ? ': ' + data.error.message : ''));
-    return (data.content || []).map((b) => b.text || '').join('');
-  } finally { clearTimeout(timer); }
+    req.on('error', reject);
+    req.setTimeout(TIMEOUT_MS, () => { const e = new Error('timeout'); e.name = 'AbortError'; req.destroy(e); });
+    req.write(body);
+    req.end();
+  });
+}
+
+export async function callAnthropic(prompt, maxTokens) {
+  const r = await post(JSON.stringify({ model: MODEL, max_tokens: maxTokens, system: SYSTEM, messages: [{ role: 'user', content: prompt }] }));
+  let data = {};
+  try { data = JSON.parse(r.body); } catch (e) { /* keep empty */ }
+  if (r.status !== 200) throw new Error('upstream ' + r.status + (data.error && data.error.message ? ': ' + data.error.message : ''));
+  return (data.content || []).map((b) => b.text || '').join('');
 }
 
 export const handler = async (event, _ctx, deps = {}) => {
@@ -160,7 +190,7 @@ export const handler = async (event, _ctx, deps = {}) => {
   let body;
   try { body = JSON.parse(event.body || '{}'); } catch (e) { return reply(400, { ok: false, error: 'bad_json' }); }
   const action = body.action;
-  if (action !== 'test' && action !== 'respond') return reply(400, { ok: false, error: 'unknown_action' });
+  if (!ACTIONS.includes(action)) return reply(400, { ok: false, error: 'unknown_action' });
 
   const p = {
     lang: pick(body.lang, Object.keys(LANGS), 'en'),
@@ -170,8 +200,17 @@ export const handler = async (event, _ctx, deps = {}) => {
     source: pick(body.source, SOURCES, 'unclear'),
     summary: clip(body.summary, 500)
   };
+  if (action === 'reflect') {
+    p.week = Math.min(6, Math.max(1, Number(body.week) || 1));
+    p.entries = (Array.isArray(body.entries) ? body.entries : []).slice(0, 14).map((e) => ({
+      domain: pick(e && e.domain, DOMAINS, ''), pressure: pick(e && e.pressure, PRESSURES, ''),
+      source: pick(e && e.source, SOURCES, 'unclear'), step: pick(e && e.step, STEPS, 'pending'), signal: clip(e && e.signal, 240).trim()
+    })).filter((e) => e.signal.length >= 3);
+    if (p.entries.length < 3) return reply(400, { ok: false, error: 'too_few' });
+    p.signal = p.entries.map((e) => e.signal).join(' | ');
+  }
   if (p.signal.length < 3) return reply(400, { ok: false, error: 'empty' });
-  if (crisisWords(p.signal)) return reply(200, { ok: true, result: { crisis: true } });
+  if (action !== 'reflect' && crisisWords(p.signal)) return reply(200, { ok: true, result: { crisis: true } });
 
   const ip = event.headers['x-nf-client-connection-ip'] || event.headers['client-ip'] || (event.headers['x-forwarded-for'] || '').split(',')[0].trim() || 'unknown';
   if (rateLimited(ip, Number(process.env.COMPASS_RATE || 8))) return reply(429, { ok: false, error: 'busy' });
