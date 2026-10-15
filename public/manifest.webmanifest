@@ -1,0 +1,14 @@
+{
+  "name": "The Attunement Compass",
+  "short_name": "Compass",
+  "description": "Stop. Test the signal. Recalibrate. A spiritual discernment practice grounded in 1 John 4.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#080F1C",
+  "theme_color": "#080F1C",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

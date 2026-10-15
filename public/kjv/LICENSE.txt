@@ -1,0 +1,2 @@
+King James Version text: public domain.
+JSON source: github.com/aruljohn/Bible-kjv, MIT License, Copyright (c) 2019 Arul John.

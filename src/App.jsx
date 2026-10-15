@@ -1,14 +1,115 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
+import * as Bible from "./bible.js";
 
-async function callClaude({ system, messages }) {
-  const resp = await fetch("/api/claude", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ system, messages }),
-  });
-  const data = await resp.json();
-  const raw = data.content?.map((b) => b.text || "").join("") || "";
-  return raw.replace(/```json|```/g, "").trim();
+// The guide runs on the server (netlify/functions/compass.mjs). The browser sends only the
+// person's words; the prompts and the key never leave the server.
+async function askCompass(payload) {
+  let resp;
+  try {
+    resp = await fetch("/api/compass", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch (e) {
+    throw new Error("network");
+  }
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok || !data.ok) throw new Error(data.error || "upstream");
+  return data.result;
+}
+
+const DONATE_URL = "https://www.paypal.com/donate/?hosted_button_id=MWQHNBSUBX396";
+const DOMAIN_KEYS = ["relationships", "work", "inner", "social", "financial", "health", "ministry", "family", "other"];
+const COME_UNTO_ME = { ref: "Matthew 11:28", text: "Come unto me, all ye that labour and are heavy laden, and I will give you rest." };
+
+// Words added in COMPASS-01. Spanish, French, Yoruba, Igbo and Hausa need a native speaker's review (see TRANSLATION-REVIEW.md).
+const EXTRA = {
+  en: {
+    stageWord: "Stage", unclear: "UNCLEAR",
+    sources: { truth: "Likely the Spirit of Truth", error: "Likely the spirit of error", unclear: "Unclear — wait and seek wisdom" },
+    prayerLabels: { refute: "Active Refutation — Prayer", affirm: "Prayer of Yielding", wait: "Prayer for Clarity" },
+    readChapter: "Read the whole chapter", hideChapter: "Close the chapter",
+    kjvNote: "",
+    communityLabel: "Bring It to the Body",
+    crisisTitle: "Please reach out now",
+    crisisText: "What you are carrying sounds very heavy, and you should not carry it alone. If you might harm yourself or someone else, or you are in danger, call your local emergency number now (in the U.S., call or text 988). Reach out today to someone you trust, your pastor, or a doctor.",
+    humility: "The Compass is an aid to your own discernment; it does not speak for God. Test everything by the whole of Scripture and with your church.",
+    errorBusy: "Many people are using the Compass right now. Please wait a few minutes and try again.",
+    errorTimeout: "The response took too long. Please try again.",
+  },
+  es: {
+    stageWord: "Etapa", unclear: "INCIERTO",
+    sources: { truth: "Probablemente el Espíritu de Verdad", error: "Probablemente el espíritu de error", unclear: "Incierto — espera y busca sabiduría" },
+    prayerLabels: { refute: "Refutación Activa — Oración", affirm: "Oración de Rendición", wait: "Oración por Claridad" },
+    readChapter: "Leer el capítulo completo", hideChapter: "Cerrar el capítulo",
+    kjvNote: "Las Escrituras se muestran en la versión King James (inglés). La explicación está en español.",
+    communityLabel: "Llévalo al Cuerpo de Cristo",
+    crisisTitle: "Por favor, busca ayuda ahora",
+    crisisText: "Lo que llevas es muy pesado, y no debes cargarlo solo. Si podrías hacerte daño a ti mismo o a otra persona, o estás en peligro, llama ahora al número de emergencias de tu país (en EE. UU., llama o envía un mensaje al 988). Habla hoy con alguien de confianza, tu pastor o un médico.",
+    humility: "La Brújula es una ayuda para tu propio discernimiento; no habla por Dios. Examínalo todo con toda la Escritura y con tu iglesia.",
+    errorBusy: "Muchas personas están usando la Brújula ahora. Espera unos minutos e inténtalo de nuevo.",
+    errorTimeout: "La respuesta tardó demasiado. Inténtalo de nuevo.",
+  },
+  fr: {
+    stageWord: "Étape", unclear: "INCERTAIN",
+    sources: { truth: "Probablement l'Esprit de vérité", error: "Probablement l'esprit d'erreur", unclear: "Incertain — attendez et cherchez la sagesse" },
+    prayerLabels: { refute: "Réfutation Active — Prière", affirm: "Prière d'abandon", wait: "Prière pour la clarté" },
+    readChapter: "Lire tout le chapitre", hideChapter: "Fermer le chapitre",
+    kjvNote: "Les Écritures sont affichées dans la version King James (anglais). L'explication est en français.",
+    communityLabel: "Apportez-le au Corps du Christ",
+    crisisTitle: "Cherchez de l'aide maintenant",
+    crisisText: "Ce que vous portez est très lourd, et vous ne devez pas le porter seul. Si vous risquez de vous faire du mal ou d'en faire à quelqu'un, ou si vous êtes en danger, appelez maintenant le numéro d'urgence de votre pays. Parlez aujourd'hui à une personne de confiance, à votre pasteur ou à un médecin.",
+    humility: "La Boussole est une aide à votre propre discernement ; elle ne parle pas au nom de Dieu. Éprouvez toutes choses par l'ensemble des Écritures et avec votre Église.",
+    errorBusy: "Beaucoup de personnes utilisent la Boussole en ce moment. Patientez quelques minutes et réessayez.",
+    errorTimeout: "La réponse a pris trop de temps. Réessayez.",
+  },
+  yo: {
+    stageWord: "Ìpele", unclear: "KÒ DÁJÚ",
+    sources: { truth: "Ó ṣeéṣe kí ó jẹ́ Ẹ̀mí Òtítọ́", error: "Ó ṣeéṣe kí ó jẹ́ ẹ̀mí ìṣìnà", unclear: "Kò dájú — dúró kí o sì wá ọgbọ́n" },
+    prayerLabels: { refute: "Kíkọ̀ Àgbára — Àdúrà", affirm: "Àdúrà Ìtẹríba", wait: "Àdúrà fún Ìmọ́lẹ̀" },
+    readChapter: "Ka gbogbo orí náà", hideChapter: "Pa orí náà dé",
+    kjvNote: "A fi Ìwé Mímọ́ hàn ní King James Version (Gẹ̀ẹ́sì). Àlàyé wà ní Yorùbá.",
+    communityLabel: "Mú Un Wá Sọ́dọ̀ Ìjọ",
+    crisisTitle: "Jọ̀wọ́ wá ìrànlọ́wọ́ nísinsìnyí",
+    crisisText: "Ohun tí ò ń gbé wúwo púpọ̀, kò sì yẹ kí o gbé e nìkan. Tí o bá lè ṣe ara rẹ tàbí ẹlòmíràn léṣe, tàbí tí o bá wà nínú ewu, pe nọ́ńbà pàjáwìrì ní agbègbè rẹ nísinsìnyí. Bá ẹnìkan tí o fọkàn tán, pásítọ̀ rẹ, tàbí dókítà sọ̀rọ̀ lónìí.",
+    humility: "Compass jẹ́ ohun-èlò láti ràn ọ́ lọ́wọ́ nínú ìfòyemọ̀ tìrẹ; kò sọ̀rọ̀ fún Ọlọ́run. Dán ohun gbogbo wò pẹ̀lú gbogbo Ìwé Mímọ́ àti pẹ̀lú ìjọ rẹ.",
+    errorBusy: "Ọ̀pọ̀ ènìyàn ń lo Compass báyìí. Jọ̀wọ́ dúró ìṣẹ́jú díẹ̀ kí o tún gbìyànjú.",
+    errorTimeout: "Ó pẹ́ jù. Jọ̀wọ́ tún gbìyànjú.",
+  },
+  ig: {
+    stageWord: "Nkebi", unclear: "O DOGHỊ ANYA",
+    sources: { truth: "O nwere ike ịbụ Mmụọ Eziokwu", error: "O nwere ike ịbụ mmụọ njehie", unclear: "O doghị anya — chere ma chọọ amamihe" },
+    prayerLabels: { refute: "Ịkwụsị Ike — Ekpere", affirm: "Ekpere Nrubeisi", wait: "Ekpere maka Nghọta" },
+    readChapter: "Gụọ isi ahụ niile", hideChapter: "Mechie isi ahụ",
+    kjvNote: "E gosipụtara Akwụkwọ Nsọ na King James Version (Bekee). Nkọwa dị n'Igbo.",
+    communityLabel: "Weta ya n'Ọgbakọ",
+    crisisTitle: "Biko chọọ enyemaka ugbu a",
+    crisisText: "Ihe ị na-ebu dị arọ nke ukwuu, ị gaghị ebu ya naanị gị. Ọ bụrụ na ị nwere ike imerụ onwe gị ahụ ma ọ bụ onye ọzọ, ma ọ bụ na ị nọ n'ihe egwu, kpọọ nọmba mberede mpaghara gị ugbu a. Gwa onye ị tụkwasịrị obi, pastọ gị, ma ọ bụ dọkịta okwu taa.",
+    humility: "Compass bụ ihe enyemaka maka nghọta nke gị; ọ naghị ekwu okwu n'aha Chineke. Nwalee ihe niile site n'Akwụkwọ Nsọ niile na ụka gị.",
+    errorBusy: "Ọtụtụ mmadụ na-eji Compass ugbu a. Biko chere nkeji ole na ole ma nwaa ọzọ.",
+    errorTimeout: "O were ogologo oge. Biko nwaa ọzọ.",
+  },
+  ha: {
+    stageWord: "Mataki", unclear: "BA A TABBATA BA",
+    sources: { truth: "Mai yiwuwa Ruhun Gaskiya ne", error: "Mai yiwuwa ruhun ɓata ne", unclear: "Ba a tabbata ba — jira ka nemi hikima" },
+    prayerLabels: { refute: "Ƙaryatawa Mai Aiki — Addu'a", affirm: "Addu'ar Miƙa Kai", wait: "Addu'ar Neman Haske" },
+    readChapter: "Karanta dukan babin", hideChapter: "Rufe babin",
+    kjvNote: "Ana nuna Nassi a cikin King James Version (Turanci). Bayani yana cikin Hausa.",
+    communityLabel: "Kai Shi Ga Ikilisiya",
+    crisisTitle: "Don Allah nemi taimako yanzu",
+    crisisText: "Abin da kake ɗauke da shi yana da nauyi sosai, kuma bai kamata ka ɗauke shi kai kaɗai ba. Idan za ka iya cutar da kanka ko wani, ko kana cikin haɗari, kira lambar gaggawa ta yankinku yanzu. Yi magana da wanda ka amince da shi, fastonka, ko likita a yau.",
+    humility: "Compass taimako ne ga fahimtarka; ba ya magana a madadin Allah. Gwada komai da dukan Nassi da kuma tare da ikilisiyarka.",
+    errorBusy: "Mutane da yawa suna amfani da Compass yanzu. Don Allah jira 'yan mintuna ka sake gwadawa.",
+    errorTimeout: "Ya ɗauki lokaci mai tsawo. Don Allah a sake gwadawa.",
+  },
+};
+
+function errorText(T, e, fallback) {
+  const code = e && e.message;
+  if (code === "busy") return T.errorBusy;
+  if (code === "timeout") return T.errorTimeout;
+  return fallback;
 }
 
 const LANGUAGES = {
@@ -206,11 +307,11 @@ const UI_TEXT = {
     startOver: "Bẹ̀rẹ̀ Lẹ́ẹ̀kan Sí",
     generateBtn: "Ṣẹ̀dá Ìdáhùn Olóòtọ́",
     generating: "Ń pèsè Ìdáhùn…",
-    prayerLabel: "Kíkọ̀ Àgbára — Ìpàdé",
+    prayerLabel: "Kíkọ̀ Àgbára — Àdúrà",
     scriptureLabel: "Atúntò Ìwé Mímọ́",
     stepLabel: "Ìgbésẹ̀ Rẹ Kan — Sísinsin Yìí",
     back: "Padà",
-    newSession: "Bẹ̀rẹ̀ Ìpàdé Tuntun",
+    newSession: "Bẹ̀rẹ̀ Ìdánwò Tuntun",
     journeyTitle: "Ìrìn-Àjò Náà Ń Bá Lọ",
     journeyLine1: "Ohun-elo yìí jẹ́ apá kan ti ìrìn-àjò tó tobi jùlọ.",
     journeyLine2: "Máa wo àyè yìí — Ń bọ̀ laipẹ! ✦",
@@ -262,7 +363,7 @@ const UI_TEXT = {
     scriptureLabel: "Ịtụgharia n'Akwụkwọ Nsọ",
     stepLabel: "Nzọụkwụ Gị Otu — Ugbu a",
     back: "Laghachi",
-    newSession: "Malite Ọgụgụ Ọhụrụ",
+    newSession: "Malite Nnwale Ọhụrụ",
     journeyTitle: "Njem Ahụ Na-aga N'ihu",
     journeyLine1: "Ngwaọrụ a bụ akụkụ otu njem ka ukwu.",
     journeyLine2: "Nọdị na-elecha anya ebe a — Na-abịa n'oge na-adịghị anya! ✦",
@@ -321,8 +422,8 @@ const UI_TEXT = {
     donateText: "Idan wannan kayan aikin ya albarka ku, yi la'akari da goyan bayan aikin ta His Dominion — wata ƙungiya ta 501(c)(3).",
     donateBtn: "Goyi Bayan His Dominion",
     errorSignal: "Don Allah bayyana alama da kuke fuskanta.",
-    errorGeneral: "Wani abu ya faru. Don Allah gwada again.",
-    errorResponse: "Ba a iya ƙirƙirar amsa. Don Allah gwada again.",
+    errorGeneral: "Wani abu ya faru. Don Allah a sake gwadawa.",
+    errorResponse: "Ba a iya ƙirƙirar amsa ba. Don Allah a sake gwadawa.",
     verse1: '"Ya ku ƙaunatattu, kada ku gaskata kowane ruhu; sai ku gwada ruhuhu." — 1 Yahaya 4:1',
     verse2: '"Ta haka ne muke sanin ruhu na gaskiya da ruhu na barna." — 1 Yahaya 4:6',
     verse3: '"Wanda yake a cikinku ya fi wanda yake a duniya." — 1 Yahaya 4:4',
@@ -382,14 +483,63 @@ function TypingText({ text, speed = 16 }) {
   return <span>{displayed}</span>;
 }
 
-function TestCard({ label, content, index, aligned, misaligned }) {
+const RESULT_COLOR = { aligned: "#82C9A0", misaligned: "#E07B6A", unclear: "#C9A84C" };
+const SOURCE_COLOR = { truth: "#82C9A0", error: "#E07B6A", unclear: "#C9A84C" };
+
+// One passage: the exact KJV words from /kjv, why it speaks to this signal, and the whole chapter on request.
+function PassageCard({ p, T }) {
+  const [chapter, setChapter] = useState(null);
+  const [open, setOpen] = useState(false);
+  const boxRef = useRef(null);
+  useEffect(() => {
+    // Open the chapter at the passage itself, not at verse 1.
+    const box = boxRef.current;
+    if (!open || !box) return;
+    const first = box.querySelector("[data-hl]");
+    if (first) box.scrollTop = Math.max(0, first.offsetTop - 12);
+  }, [open, chapter]);
+  async function toggle() {
+    if (open) { setOpen(false); return; }
+    if (!chapter) {
+      try {
+        const c = await Bible.passage({ ...p.ref, v1: 0, v2: 0 }, 200);
+        if (c.ok) setChapter(c);
+      } catch (e) { return; }
+    }
+    setOpen(true);
+  }
+  const verseStyle = { margin: "0 0 6px", fontSize: 15.5, color: "#B8C9E0", lineHeight: 1.82, fontStyle: "italic" };
+  const num = (n) => <sup style={{ color: "#7B9EBE", fontStyle: "normal", fontSize: 10.5, marginRight: 4 }}>{n}</sup>;
+  return (
+    <div style={{ border: "1px solid #7B9EBE33", borderRadius: 14, padding: "20px 22px", background: "#7B9EBE07", marginBottom: 12 }}>
+      <div style={{ fontFamily: "'Cormorant Garamond',serif", fontSize: 18, color: "#7B9EBE", marginBottom: 8 }}>{p.label} <span style={{ fontSize: 12, color: "#4A6080" }}>· KJV</span></div>
+      {!open && p.verses.map(([n, text]) => <p key={n} style={verseStyle}>{num(n)}{text}</p>)}
+      {open && chapter && (
+        <div ref={boxRef} style={{ position: "relative", maxHeight: 420, overflowY: "auto", paddingRight: 6, margin: "4px 0 6px" }}>
+          {chapter.verses.map(([n, text]) => {
+            const hl = n >= p.ref.v1 && n <= p.ref.v2;
+            return <p key={n} data-hl={hl ? "1" : undefined} style={{ ...verseStyle, fontStyle: "normal", fontSize: 15, color: hl ? "#F0E6CC" : "#8A9EC0", background: hl ? "#C9A84C14" : "transparent", borderLeft: hl ? "2px solid #C9A84C" : "2px solid transparent", padding: "2px 8px", margin: 0 }}>{num(n)}{text}</p>;
+          })}
+        </div>
+      )}
+      {p.why && <p style={{ margin: "6px 0 10px", fontSize: 13.5, color: "#8A9EC0", lineHeight: 1.65, borderTop: "1px solid #1E2D4A", paddingTop: 10 }}>{p.why}</p>}
+      {p.ref.v1 > 0 && (
+        <button onClick={toggle} style={{ background: "transparent", border: "none", padding: 0, color: "#C9A84C", fontSize: 13, fontFamily: "'Lora',serif", textDecoration: "underline", cursor: "pointer" }}>
+          {open ? T.hideChapter : T.readChapter}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function TestCard({ label, content, index, aligned, misaligned, unclear }) {
   const [visible, setVisible] = useState(false);
   useEffect(() => {
     const t = setTimeout(() => setVisible(true), index * 280 + 150);
     return () => clearTimeout(t);
   }, [index]);
-  const passed = content ? content.verdict === "pass" : false;
-  const color = passed ? "#82C9A0" : "#E07B6A";
+  const result = content ? content.result : "unclear";
+  const color = RESULT_COLOR[result] || RESULT_COLOR.unclear;
   return (
     <div style={{
       border: "1px solid " + (visible ? color + "44" : "#1E2D4A"),
@@ -402,7 +552,7 @@ function TestCard({ label, content, index, aligned, misaligned }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
         <span style={{ fontFamily: "'Cormorant Garamond',serif", fontSize: 14, color: "#8A9EC0", letterSpacing: "0.06em", textTransform: "uppercase" }}>{label}</span>
         <span style={{ fontSize: 11, color: color, fontFamily: "monospace", letterSpacing: "0.1em" }}>
-          {passed ? aligned : misaligned}
+          {result === "aligned" ? aligned : result === "misaligned" ? misaligned : unclear}
         </span>
       </div>
       <p style={{ margin: 0, color: "#B8C9E0", fontSize: 14.5, lineHeight: 1.72, fontFamily: "'Lora',serif" }}>
@@ -496,88 +646,83 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [analysisData, setAnalysisData] = useState(null);
   const [responseData, setResponseData] = useState(null);
+  const [crisis, setCrisis] = useState(false);
   const [error, setError] = useState("");
   const [session, setSession] = useState({});
   const topRef = useRef(null);
 
-  const T = UI_TEXT[lang];
+  const T = { ...UI_TEXT[lang], ...EXTRA[lang] };
   const stage = T.stages[stageIndex];
   const color = STAGE_COLORS[stageIndex];
+
+  // Drawn once, so the stars do not jump every time the page updates.
+  const stars = useMemo(() => Array.from({ length: 55 }).map(() => ({
+    size: Math.random() * 2 + 1, left: Math.random() * 100, top: Math.random() * 100,
+    opacity: Math.random() * 0.25 + 0.04, dur: Math.random() * 4 + 3, delay: Math.random() * 5,
+  })), []);
 
   function scrollTop() {
     if (topRef.current) topRef.current.scrollIntoView({ behavior: "smooth" });
   }
 
+  function domainKey(label) {
+    const i = T.domains.indexOf(label);
+    return i >= 0 ? DOMAIN_KEYS[i] : "";
+  }
+
   async function runIdentification() {
     if (!signal.trim()) { setError(T.errorSignal); return; }
     setError(""); setLoading(true); setAnalysisData(null);
-    const s = { signal, domain, pressure };
+    const s = { signal: signal.trim(), domain: domainKey(domain), pressure };
     setSession(s);
     try {
-      const systemPrompt = lang === "en"
-        ? "You are a spiritual discernment guide grounded in 1 John 4. Respond ONLY with valid JSON — no markdown, no preamble."
-        : "You are a spiritual discernment guide grounded in 1 John 4. Respond in " + LANGUAGES[lang].label + ". Respond ONLY with valid JSON — no markdown, no preamble.";
-
-      const raw = await callClaude({
-        system: systemPrompt,
-        messages: [{
-          role: "user",
-          content: "A believer is running the Attunement Compass:\nDomain: " + (s.domain || "Unspecified") + "\nSignal: \"" + s.signal + "\"\nPressure: " + (s.pressure || "Not noted") + "\n\nApply four calibration tests. Return JSON:\n{\"overall_source\": \"Spirit of Truth\" or \"Spirit of Error\" or \"Mixed / Requires Wisdom\",\"summary\": \"1-2 sentence pastoral summary in " + LANGUAGES[lang].label + "\",\"tests\": {\"christological\": {\"verdict\": \"pass\" or \"fail\",\"analysis\": \"2-3 sentences in " + LANGUAGES[lang].label + "\"},\"canonical\": {\"verdict\": \"pass\" or \"fail\",\"analysis\": \"2-3 sentences in " + LANGUAGES[lang].label + "\"},\"character\": {\"verdict\": \"pass\" or \"fail\",\"analysis\": \"2-3 sentences in " + LANGUAGES[lang].label + "\"},\"corporate\": {\"verdict\": \"pass\" or \"fail\",\"analysis\": \"2-3 sentences in " + LANGUAGES[lang].label + "\"}}}"
-        }],
-      });
-      setAnalysisData(JSON.parse(raw));
-      setStageIndex(1);
-      setTimeout(scrollTop, 100);
+      const r = await askCompass({ action: "test", lang, ...s });
+      if (r.crisis) { setCrisis(true); setTimeout(scrollTop, 100); }
+      else { setAnalysisData(r); setStageIndex(1); setTimeout(scrollTop, 100); }
     } catch (e) {
-      setError(T.errorGeneral);
+      setError(errorText(T, e, T.errorGeneral));
     }
     setLoading(false);
   }
 
   async function runResponse() {
     if (!analysisData) return;
-    setLoading(true); setResponseData(null);
+    setError(""); setLoading(true); setResponseData(null);
     try {
-      const raw = await callClaude({
-        system: lang === "en"
-          ? "You are a pastoral guide helping a believer move from discernment to faithful action. Respond ONLY with valid JSON — no markdown, no preamble."
-          : "You are a pastoral guide helping a believer. Respond in " + LANGUAGES[lang].label + ". Respond ONLY with valid JSON — no markdown, no preamble.",
-        messages: [{
-          role: "user",
-          content: "Signal: \"" + session.signal + "\"\nSource: " + analysisData.overall_source + "\nSummary: " + analysisData.summary + "\n\nGenerate Faithful Response in " + LANGUAGES[lang].label + ". Return JSON:\n{\"refutation_prayer\": \"2-4 sentence prayer in " + LANGUAGES[lang].label + "\",\"scripture_antidote\": {\"reference\": \"Book Chapter:Verse\",\"text\": \"verse text\",\"application\": \"1 sentence in " + LANGUAGES[lang].label + "\"},\"one_step\": \"concrete step in " + LANGUAGES[lang].label + "\",\"encouragement\": \"1-2 sentences in " + LANGUAGES[lang].label + "\"}"
-        }],
-      });
-      setResponseData(JSON.parse(raw));
+      const r = await askCompass({ action: "respond", lang, ...session, source: analysisData.source, summary: analysisData.summary });
+      if (r.crisis) { setCrisis(true); setLoading(false); setTimeout(scrollTop, 100); return; }
+      // Selah names the passages; the words always come from the bundled King James Bible.
+      const found = (await Promise.all((r.passages || []).map(async (x) => {
+        try {
+          const p = await Bible.passage(x.ref, 8);
+          return p.ok ? { ...p, why: x.why } : null;
+        } catch (e) { return null; }
+      }))).filter(Boolean);
+      setResponseData({ ...r, found });
       setStageIndex(2);
       setTimeout(scrollTop, 100);
     } catch (e) {
-      setError(T.errorResponse);
+      setError(errorText(T, e, T.errorResponse));
     }
     setLoading(false);
   }
 
   function reset() {
-    setStageIndex(0); setSignal(""); setPressure(""); setDomain("");
+    setStageIndex(0); setSignal(""); setPressure(""); setDomain(""); setCrisis(false);
     setAnalysisData(null); setResponseData(null); setError(""); setSession({});
     setTimeout(scrollTop, 100);
   }
 
-  const sourceColor = analysisData
-    ? (analysisData.overall_source === "Spirit of Truth" ? "#82C9A0"
-      : analysisData.overall_source === "Spirit of Error" ? "#E07B6A" : "#C9A84C")
-    : "#C9A84C";
+  const sourceColor = analysisData ? (SOURCE_COLOR[analysisData.source] || SOURCE_COLOR.unclear) : "#C9A84C";
 
   return (
     <div style={{ minHeight: "100vh", background: "#080F1C", fontFamily: "'Lora',serif", color: "#D4E0F0", padding: "0 0 80px", position: "relative", overflow: "hidden" }}>
       <div style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 0 }}>
-        {Array.from({ length: 55 }).map((_, i) => (
+        {stars.map((st, i) => (
           <div key={i} style={{
             position: "absolute", borderRadius: "50%", background: "#fff",
-            width: Math.random() * 2 + 1, height: Math.random() * 2 + 1,
-            left: Math.random() * 100 + "%", top: Math.random() * 100 + "%",
-            opacity: Math.random() * 0.25 + 0.04,
-            animation: "twinkle " + (Math.random() * 4 + 3) + "s ease-in-out infinite",
-            animationDelay: Math.random() * 5 + "s",
+            width: st.size, height: st.size, left: st.left + "%", top: st.top + "%",
+            opacity: st.opacity, animation: "twinkle " + st.dur + "s ease-in-out infinite", animationDelay: st.delay + "s",
           }} />
         ))}
       </div>
@@ -619,13 +764,29 @@ export default function App() {
 
         <ProgressDots stageIndex={stageIndex} />
 
+        {crisis && (
+          <div style={{ animation: "fadeUp 0.45s ease forwards" }}>
+            <div role="alert" style={{ border: "1px solid #C9A84C66", borderRadius: 14, padding: "22px 22px", background: "#C9A84C0D", marginBottom: 16 }}>
+              <div style={{ fontFamily: "'Cormorant Garamond',serif", fontSize: 25, color: "#F0E6CC", marginBottom: 10 }}>{T.crisisTitle}</div>
+              <p style={{ margin: 0, fontSize: 15.5, color: "#D4E0F0", lineHeight: 1.8 }}>{T.crisisText}</p>
+            </div>
+            <div style={{ border: "1px solid #7B9EBE33", borderRadius: 14, padding: "18px 22px", background: "#7B9EBE07", marginBottom: 20 }}>
+              <p style={{ margin: "0 0 6px", fontSize: 16, color: "#B8C9E0", lineHeight: 1.8, fontStyle: "italic" }}>"{COME_UNTO_ME.text}"</p>
+              <div style={{ fontSize: 13, color: "#7B9EBE" }}>{COME_UNTO_ME.ref} · KJV</div>
+            </div>
+            <button onClick={reset} style={{ width: "100%", background: "#C9A84C11", border: "1px solid #C9A84C55", borderRadius: 10, padding: "13px 20px", color: "#C9A84C", fontSize: 15, fontFamily: "'Cormorant Garamond',serif", letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer" }}>
+              {T.startOver}
+            </button>
+          </div>
+        )}
+
         {/* Stage header */}
-        <div key={stageIndex + lang} style={{ display: "flex", gap: 20, alignItems: "flex-start", marginBottom: 28, animation: "fadeUp 0.45s ease forwards" }}>
+        {!crisis && <div key={stageIndex + lang} style={{ display: "flex", gap: 20, alignItems: "flex-start", marginBottom: 28, animation: "fadeUp 0.45s ease forwards" }}>
           <CompassRose stageIndex={stageIndex} />
           <div style={{ flex: 1 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 5 }}>
               <span style={{ fontFamily: "'Cormorant Garamond',serif", color: color, fontSize: 12.5, letterSpacing: "0.2em", textTransform: "uppercase" }}>
-                Stage {stage.number}
+                {T.stageWord} {stage.number}
               </span>
               <div style={{ height: 1, flex: 1, background: color + "33" }} />
             </div>
@@ -635,10 +796,10 @@ export default function App() {
             </p>
             <p style={{ margin: 0, fontSize: 14, color: "#8A9EC0", lineHeight: 1.6 }}>{stage.desc}</p>
           </div>
-        </div>
+        </div>}
 
         {/* STAGE 1 */}
-        {stageIndex === 0 && (
+        {!crisis && stageIndex === 0 && (
           <div style={{ animation: "fadeUp 0.45s ease forwards" }}>
             <div style={{ marginBottom: 18 }}>
               <label style={{ display: "block", fontSize: 11, letterSpacing: "0.15em", color: "#5A7090", textTransform: "uppercase", marginBottom: 8, fontFamily: "'Cormorant Garamond',serif" }}>
@@ -685,11 +846,11 @@ export default function App() {
         )}
 
         {/* STAGE 2 */}
-        {stageIndex === 1 && analysisData && (
+        {!crisis && stageIndex === 1 && analysisData && (
           <div style={{ animation: "fadeUp 0.45s ease forwards" }}>
             <div style={{ border: "1px solid " + sourceColor + "44", borderRadius: 14, padding: "20px 22px", background: sourceColor + "0A", marginBottom: 26, textAlign: "center" }}>
               <div style={{ fontSize: 10.5, letterSpacing: "0.2em", color: "#5A7090", textTransform: "uppercase", marginBottom: 7, fontFamily: "'Cormorant Garamond',serif" }}>{T.sourceLabel}</div>
-              <div style={{ fontFamily: "'Cormorant Garamond',serif", fontSize: 27, color: sourceColor, fontWeight: 400, marginBottom: 9 }}>{analysisData.overall_source}</div>
+              <div style={{ fontFamily: "'Cormorant Garamond',serif", fontSize: 27, color: sourceColor, fontWeight: 400, marginBottom: 9 }}>{T.sources[analysisData.source] || T.sources.unclear}</div>
               <p style={{ margin: 0, fontSize: 14.5, color: "#8A9EC0", lineHeight: 1.75, fontStyle: "italic" }}>
                 <TypingText text={analysisData.summary} />
               </p>
@@ -699,9 +860,11 @@ export default function App() {
               {T.tests.map((t, i) => (
                 <TestCard key={t.key} label={t.label}
                   content={analysisData.tests ? analysisData.tests[t.key] : null}
-                  index={i} aligned={T.aligned} misaligned={T.misaligned} />
+                  index={i} aligned={T.aligned} misaligned={T.misaligned} unclear={T.unclear} />
               ))}
             </div>
+
+            <p style={{ margin: "0 0 18px", fontSize: 12.5, color: "#5A7090", lineHeight: 1.65, fontStyle: "italic", textAlign: "center" }}>{T.humility}</p>
 
             {error && <p style={{ color: "#E07B6A", fontSize: 13.5, marginBottom: 14 }}>{error}</p>}
 
@@ -719,34 +882,38 @@ export default function App() {
         )}
 
         {/* STAGE 3 */}
-        {stageIndex === 2 && responseData && (
+        {!crisis && stageIndex === 2 && responseData && (
           <div style={{ animation: "fadeUp 0.45s ease forwards" }}>
             <div style={{ border: "1px solid #C9A84C33", borderRadius: 14, padding: "20px 22px", background: "#C9A84C07", marginBottom: 16 }}>
-              <div style={{ fontSize: 10.5, letterSpacing: "0.2em", color: "#8A7040", textTransform: "uppercase", marginBottom: 10, fontFamily: "'Cormorant Garamond',serif" }}>{T.prayerLabel}</div>
-              <p style={{ margin: 0, fontSize: 16, color: "#D4C890", lineHeight: 1.85, fontStyle: "italic", fontFamily: "'Cormorant Garamond',serif" }}>"{responseData.refutation_prayer}"</p>
+              <div style={{ fontSize: 10.5, letterSpacing: "0.2em", color: "#8A7040", textTransform: "uppercase", marginBottom: 10, fontFamily: "'Cormorant Garamond',serif" }}>{T.prayerLabels[responseData.stance] || T.prayerLabel}</div>
+              <p style={{ margin: 0, fontSize: 16, color: "#D4C890", lineHeight: 1.85, fontStyle: "italic", fontFamily: "'Cormorant Garamond',serif" }}>"{responseData.prayer}"</p>
             </div>
 
-            <div style={{ border: "1px solid #7B9EBE33", borderRadius: 14, padding: "20px 22px", background: "#7B9EBE07", marginBottom: 16 }}>
-              <div style={{ fontSize: 10.5, letterSpacing: "0.2em", color: "#5A7090", textTransform: "uppercase", marginBottom: 10, fontFamily: "'Cormorant Garamond',serif" }}>{T.scriptureLabel}</div>
-              <div style={{ fontFamily: "'Cormorant Garamond',serif", fontSize: 18, color: "#7B9EBE", marginBottom: 7 }}>
-                {responseData.scripture_antidote ? responseData.scripture_antidote.reference : ""}
+            {responseData.found.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 10.5, letterSpacing: "0.2em", color: "#5A7090", textTransform: "uppercase", marginBottom: 10, fontFamily: "'Cormorant Garamond',serif" }}>{T.scriptureLabel}</div>
+                {T.kjvNote && <p style={{ margin: "0 0 10px", fontSize: 12.5, color: "#5A7090", lineHeight: 1.6 }}>{T.kjvNote}</p>}
+                {responseData.found.map((p) => <PassageCard key={p.label} p={p} T={T} />)}
               </div>
-              <p style={{ margin: "0 0 10px", fontSize: 15.5, color: "#B8C9E0", lineHeight: 1.82, fontStyle: "italic" }}>
-                "{responseData.scripture_antidote ? responseData.scripture_antidote.text : ""}"
-              </p>
-              <p style={{ margin: 0, fontSize: 13.5, color: "#6A80A0", lineHeight: 1.65, borderTop: "1px solid #1E2D4A", paddingTop: 10 }}>
-                {responseData.scripture_antidote ? responseData.scripture_antidote.application : ""}
-              </p>
-            </div>
+            )}
 
             <div style={{ border: "1px solid #82C9A033", borderRadius: 14, padding: "20px 22px", background: "#82C9A007", marginBottom: 16 }}>
               <div style={{ fontSize: 10.5, letterSpacing: "0.2em", color: "#4A7A60", textTransform: "uppercase", marginBottom: 10, fontFamily: "'Cormorant Garamond',serif" }}>{T.stepLabel}</div>
-              <p style={{ margin: 0, fontSize: 16, color: "#82C9A0", lineHeight: 1.8, fontFamily: "'Cormorant Garamond',serif" }}>{responseData.one_step}</p>
+              <p style={{ margin: 0, fontSize: 16, color: "#82C9A0", lineHeight: 1.8, fontFamily: "'Cormorant Garamond',serif" }}>{responseData.step}</p>
             </div>
+
+            {responseData.community && (
+              <div style={{ border: "1px solid #7B9EBE33", borderRadius: 14, padding: "18px 22px", background: "#0D1829", marginBottom: 16 }}>
+                <div style={{ fontSize: 10.5, letterSpacing: "0.2em", color: "#5A7090", textTransform: "uppercase", marginBottom: 10, fontFamily: "'Cormorant Garamond',serif" }}>{T.communityLabel}</div>
+                <p style={{ margin: 0, fontSize: 14.5, color: "#B8C9E0", lineHeight: 1.7 }}>{responseData.community}</p>
+              </div>
+            )}
 
             <div style={{ borderRadius: 14, padding: "20px 22px", background: "#0D1829", border: "1px solid #2A3A5C", marginBottom: 16, textAlign: "center" }}>
               <p style={{ margin: 0, fontSize: 15, color: "#8A9EC0", lineHeight: 1.85, fontStyle: "italic", fontFamily: "'Cormorant Garamond',serif" }}>{responseData.encouragement}</p>
             </div>
+
+            <p style={{ margin: "0 0 18px", fontSize: 12.5, color: "#5A7090", lineHeight: 1.65, fontStyle: "italic", textAlign: "center" }}>{T.humility}</p>
 
             <div style={{ borderRadius: 14, padding: "28px 24px", background: "#0A1520", border: "1px solid #C9A84C33", marginBottom: 16, textAlign: "center" }}>
               <div style={{ fontSize: 10, letterSpacing: "0.28em", color: "#C9A84C77", textTransform: "uppercase", marginBottom: 12, fontFamily: "'Cormorant Garamond',serif" }}>
@@ -762,7 +929,7 @@ export default function App() {
               <p style={{ margin: "0 0 18px", fontSize: 13.5, color: "#6A80A0", fontFamily: "'Lora',serif", lineHeight: 1.75 }}>
                 {T.donateText}
               </p>
-              <button onClick={() => window.open(https://www.paypal.com/donate/?hosted_button_id=MWQHNBSUBX396)}
+              <button onClick={() => window.open(DONATE_URL, "_blank", "noopener")}
                 style={{ display: "inline-block", background: "#C9A84C11", border: "1px solid #C9A84C55", borderRadius: 10, padding: "12px 28px", color: "#C9A84C", fontSize: 13.5, fontFamily: "'Cormorant Garamond',serif", letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer", transition: "all 0.2s" }}>
                 {T.donateBtn}
               </button>
