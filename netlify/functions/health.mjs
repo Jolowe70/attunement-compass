@@ -3,7 +3,7 @@ export const handler = async () => ({
   statusCode: 200,
   headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
   body: JSON.stringify({
-    ok: true, app: 'attunement-compass', build: 'COMPASS-06', node: process.version,
+    ok: true, app: 'attunement-compass', build: 'COMPASS-06b', node: process.version,
     model: process.env.COMPASS_MODEL || 'claude-haiku-4-5 (default)',
     supabase: 'etmkqtddanvxdiicofbf (built in; VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY override it)',
     env: {

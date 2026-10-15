@@ -913,6 +913,10 @@ export const JOURNEY = {
 // Sign-in page and church care (COMPASS-06). Spanish, French, Yoruba, Igbo and Hausa need a native speaker's review.
 export const CARE = {
   en: {
+    showPwShort: "Show",
+    hidePwShort: "Hide",
+    showPw: "Show password",
+    hidePw: "Hide password",
     signInNav: "Sign in",
     signInPageTitle: "Sign in",
     signInPageText: "Your 30-Day Attunement, your journal, your discernment partners and church care, in one place.",
@@ -960,6 +964,10 @@ export const CARE = {
     inviteTextPastor: "{name} invites you to walk with them as their pastor. You will see their progress through the 30 days and only the entries they choose to share. You can write to them and offer words of counsel.",
   },
   es: {
+    showPwShort: "Ver",
+    hidePwShort: "Ocultar",
+    showPw: "Mostrar contraseña",
+    hidePw: "Ocultar contraseña",
     signInNav: "Iniciar sesión",
     signInPageTitle: "Iniciar sesión",
     signInPageText: "Tu Afinación de 30 días, tu diario, tus compañeros de discernimiento y el cuidado de la iglesia, en un solo lugar.",
@@ -1007,6 +1015,10 @@ export const CARE = {
     inviteTextPastor: "{name} te invita a caminar con él o ella como su pastor. Verás su progreso durante los 30 días y solo las entradas que decida compartir. Puedes escribirle y ofrecer palabras de consejo.",
   },
   fr: {
+    showPwShort: "Voir",
+    hidePwShort: "Masquer",
+    showPw: "Afficher le mot de passe",
+    hidePw: "Masquer le mot de passe",
     signInNav: "Se connecter",
     signInPageTitle: "Se connecter",
     signInPageText: "Votre Accordage de 30 jours, votre journal, vos partenaires de discernement et le soin de l'Église, au même endroit.",
@@ -1054,6 +1066,10 @@ export const CARE = {
     inviteTextPastor: "{name} vous invite à marcher avec lui ou elle comme son pasteur. Vous verrez sa progression pendant les 30 jours et seulement les entrées qu'il ou elle choisit de partager. Vous pouvez lui écrire et offrir des paroles de conseil.",
   },
   yo: {
+    showPwShort: "Fihàn",
+    hidePwShort: "Fipamọ́",
+    showPw: "Fi ọ̀rọ̀ aṣínà hàn",
+    hidePw: "Fi ọ̀rọ̀ aṣínà pamọ́",
     signInNav: "Wọlé",
     signInPageTitle: "Wọlé",
     signInPageText: "Ìtúnṣe Ọjọ́ 30 rẹ, ìwé ìrántí rẹ, àwọn alábàáṣiṣẹ́ ìfòyemọ̀ rẹ àti ìtọ́jú ìjọ, ní ibì kan.",
@@ -1101,6 +1117,10 @@ export const CARE = {
     inviteTextPastor: "{name} pè ọ́ láti bá a rìn gẹ́gẹ́ bí olùṣọ́-àgùntàn rẹ̀. Ìwọ yóò rí ìtẹ̀síwájú rẹ̀ nínú ọjọ́ 30 náà àti àwọn àkọsílẹ̀ tí ó yàn láti pín nìkan. O lè kọ̀wé sí i kí o sì fún un ní ọ̀rọ̀ ìmọ̀ràn.",
   },
   ig: {
+    showPwShort: "Gosi",
+    hidePwShort: "Zoo",
+    showPw: "Gosi okwuntughe",
+    hidePw: "Zoo okwuntughe",
     signInNav: "Banye",
     signInPageTitle: "Banye",
     signInPageText: "Ndozi Ụbọchị 30 gị, akwụkwọ ndekọ gị, ndị mmekọ nghọta gị na nlekọta ụka, n'otu ebe.",
@@ -1148,6 +1168,10 @@ export const CARE = {
     inviteTextPastor: "{name} na-akpọ gị ka gị na ya jee ije dịka onye ọzụzụ atụrụ ya. Ị ga-ahụ ọganihu ya n'ime ụbọchị 30 ahụ na naanị ndekọ ọ họọrọ ịkekọrịta. Ị nwere ike idegara ya ozi ma nye okwu ndụmọdụ.",
   },
   ha: {
+    showPwShort: "Nuna",
+    hidePwShort: "Ɓoye",
+    showPw: "Nuna kalmar sirri",
+    hidePw: "Ɓoye kalmar sirri",
     signInNav: "Shiga",
     signInPageTitle: "Shiga",
     signInPageText: "Daidaitawar Kwanaki 30 ɗinka, littafin tarihinka, abokan tantancewarka da kulawar ikkilisiya, a wuri ɗaya.",

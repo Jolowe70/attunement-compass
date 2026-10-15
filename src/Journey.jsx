@@ -81,6 +81,20 @@ export function DayDots({ count }) {
   );
 }
 
+// A password box with a Show / Hide button, so people can check what they typed.
+function PasswordInput({ J, ...props }) {
+  const [show, setShow] = useState(false);
+  return (
+    <div style={{ position: "relative", marginBottom: 10 }}>
+      <input {...props} type={show ? "text" : "password"} style={{ ...S.input, marginBottom: 0, paddingRight: 76 }} />
+      <button type="button" onClick={() => setShow(!show)} aria-pressed={show} aria-label={show ? J.hidePw : J.showPw} data-testid="pwtoggle"
+        style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", background: "transparent", border: "1px solid #2A3A5C", borderRadius: 7, padding: "6px 10px", color: GOLD, fontSize: 12.5, cursor: "pointer", fontFamily: "'Lora',serif" }}>
+        {show ? J.hidePwShort : J.showPwShort}
+      </button>
+    </div>
+  );
+}
+
 export function AuthBox({ J, onError, title, text }) {
   const [mode, setMode] = useState("signin");
   const [email, setEmail] = useState("");
@@ -116,7 +130,7 @@ export function AuthBox({ J, onError, title, text }) {
       )}
       <form onSubmit={submit} data-form="auth">
         <input style={S.input} type="email" name="email" autoComplete="email" required placeholder={J.email} value={email} onChange={(e) => setEmail(e.target.value)} />
-        {mode !== "forgot" && <input style={S.input} type="password" name="password" autoComplete={mode === "signup" ? "new-password" : "current-password"} required placeholder={J.password} value={pw} onChange={(e) => setPw(e.target.value)} />}
+        {mode !== "forgot" && <PasswordInput J={J} name="password" autoComplete={mode === "signup" ? "new-password" : "current-password"} required placeholder={J.password} value={pw} onChange={(e) => setPw(e.target.value)} />}
         {msg && <p style={{ ...S.text, color: msg === J.checkEmail || msg === J.resetSent ? GREEN : RED, fontSize: 13.5, marginBottom: 10 }}>{msg}</p>}
         <button type="submit" disabled={busy} style={S.btn(GOLD, true)}>{mode === "signup" ? J.createAccount : mode === "forgot" ? J.sendReset : J.signIn}</button>
       </form>
@@ -146,7 +160,7 @@ function NewPassword({ J, onDone }) {
     <div style={S.card(GOLD)} data-testid="newpw">
       <div style={S.title}>{J.newPwTitle}</div>
       <form onSubmit={save} data-form="newpw">
-        <input style={S.input} type="password" name="newpassword" autoComplete="new-password" required placeholder={J.newPw} value={pw} onChange={(e) => setPw(e.target.value)} />
+        <PasswordInput J={J} name="newpassword" autoComplete="new-password" required placeholder={J.newPw} value={pw} onChange={(e) => setPw(e.target.value)} />
         {msg && <p style={{ ...S.text, color: msg === J.pwSaved ? GREEN : RED, fontSize: 13.5, marginBottom: 10 }}>{msg}</p>}
         <button type="submit" disabled={busy} style={S.btn(GOLD, true)}>{J.savePw}</button>
       </form>
