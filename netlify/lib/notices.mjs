@@ -17,16 +17,16 @@ const FROM = process.env.NOTIFY_FROM || 'The Attunement Compass <no-reply@attune
 const SITE = () => (process.env.SITE_URL || process.env.URL || 'https://attunementcompass.com').replace(/\/+$/, '');
 
 const RECENT_MS = 15 * 60 * 1000;               // the event must have happened in the last 15 minutes
-const WINDOW = { share: 24 * 3600, counsel: 30 * 60 }; // seconds: at most one email per entry per person in this window
+const WINDOW = { share: 24 * 3600, counsel: 30 * 60, care: 6 * 3600 }; // seconds: at most one email per entry (or, for care notes, per link) per person in this window
 const ACTOR_DAILY_MAX = 40;                     // emails one person can cause in a day
 
 export const TEMPLATES = {
-  en: { shareSubject: '{name} shared a signal with you', shareBody: '{name} has shared a signal with you on The Attunement Compass and would value your prayer and counsel.', counselSubject: '{name} wrote to you on The Attunement Compass', counselBody: '{name} wrote a word of counsel on a shared signal.', open: 'Open The Attunement Compass', privacy: 'For privacy, this email does not include what was written. Open the Compass to read it.', footer: 'You receive this because you walk with {name} on The Attunement Compass. To stop these emails, open My Journey and turn off email notices.' },
-  es: { shareSubject: '{name} compartió una señal contigo', shareBody: '{name} compartió una señal contigo en The Attunement Compass y valoraría tu oración y consejo.', counselSubject: '{name} te escribió en The Attunement Compass', counselBody: '{name} escribió una palabra de consejo sobre una señal compartida.', open: 'Abrir The Attunement Compass', privacy: 'Por privacidad, este correo no incluye lo que se escribió. Abre la Brújula para leerlo.', footer: 'Recibes esto porque caminas con {name} en The Attunement Compass. Para dejar de recibir estos correos, abre Mi Camino y desactiva los avisos por correo.' },
-  fr: { shareSubject: '{name} a partagé un signal avec vous', shareBody: '{name} a partagé un signal avec vous sur The Attunement Compass et serait reconnaissant de votre prière et de vos conseils.', counselSubject: '{name} vous a écrit sur The Attunement Compass', counselBody: '{name} a écrit une parole de conseil sur un signal partagé.', open: 'Ouvrir The Attunement Compass', privacy: "Par respect de la vie privée, cet e-mail ne contient pas ce qui a été écrit. Ouvrez la Boussole pour le lire.", footer: 'Vous recevez ceci parce que vous marchez avec {name} sur The Attunement Compass. Pour ne plus recevoir ces e-mails, ouvrez Mon Parcours et désactivez les avis par e-mail.' },
-  yo: { shareSubject: '{name} pín àmì kan pẹ̀lú rẹ', shareBody: '{name} ti pín àmì kan pẹ̀lú rẹ lórí The Attunement Compass, yóò sì mọrírì àdúrà àti ìmọ̀ràn rẹ.', counselSubject: '{name} kọ̀wé sí ọ lórí The Attunement Compass', counselBody: '{name} kọ ọ̀rọ̀ ìmọ̀ràn kan lórí àmì tí a pín.', open: 'Ṣí The Attunement Compass', privacy: 'Fún ààbò àṣírí, ímeèlì yìí kò ní ohun tí a kọ. Ṣí Compass láti kà á.', footer: 'O ń gba èyí nítorí pé o ń bá {name} rìn lórí The Attunement Compass. Láti dá àwọn ímeèlì wọ̀nyí dúró, ṣí Ìrìn-Àjò Mi kí o sì pa ìfitónilétí ímeèlì.' },
-  ig: { shareSubject: '{name} kekọrịtara gị akara', shareBody: '{name} kekọrịtara gị akara na The Attunement Compass, ọ ga-enwe ekele maka ekpere na ndụmọdụ gị.', counselSubject: '{name} degaara gị ozi na The Attunement Compass', counselBody: '{name} dere okwu ndụmọdụ n\'akara e kekọrịtara.', open: 'Mepee The Attunement Compass', privacy: 'Maka nzuzo, email a enweghị ihe e dere. Mepee Compass ka ị gụọ ya.', footer: 'Ị na-anata nke a n\'ihi na gị na {name} na-eje ije na The Attunement Compass. Iji kwụsị email ndị a, mepee Njem M ma gbanyụọ ọkwa email.' },
-  ha: { shareSubject: '{name} ya raba alama tare da kai', shareBody: '{name} ya raba alama tare da kai a The Attunement Compass kuma zai yaba da addu\'arka da shawararka.', counselSubject: '{name} ya rubuta maka a The Attunement Compass', counselBody: '{name} ya rubuta kalmar shawara a kan alamar da aka raba.', open: 'Buɗe The Attunement Compass', privacy: 'Don sirri, wannan imel ba ya ƙunshe da abin da aka rubuta. Buɗe Compass don karanta shi.', footer: 'Kana karɓar wannan saboda kana tafiya tare da {name} a The Attunement Compass. Don daina karɓar waɗannan imel, buɗe Tafiyata ka kashe sanarwar imel.' },
+  en: { careSubject: '{name} sent you a word', careBody: '{name} sent you a word on The Attunement Compass.', shareSubject: '{name} shared a signal with you', shareBody: '{name} has shared a signal with you on The Attunement Compass and would value your prayer and counsel.', counselSubject: '{name} wrote to you on The Attunement Compass', counselBody: '{name} wrote a word of counsel on a shared signal.', open: 'Open The Attunement Compass', privacy: 'For privacy, this email does not include what was written. Open the Compass to read it.', footer: 'You receive this because you walk with {name} on The Attunement Compass. To stop these emails, open My Journey and turn off email notices.' },
+  es: { careSubject: '{name} te envió una palabra', careBody: '{name} te envió una palabra en The Attunement Compass.', shareSubject: '{name} compartió una señal contigo', shareBody: '{name} compartió una señal contigo en The Attunement Compass y valoraría tu oración y consejo.', counselSubject: '{name} te escribió en The Attunement Compass', counselBody: '{name} escribió una palabra de consejo sobre una señal compartida.', open: 'Abrir The Attunement Compass', privacy: 'Por privacidad, este correo no incluye lo que se escribió. Abre la Brújula para leerlo.', footer: 'Recibes esto porque caminas con {name} en The Attunement Compass. Para dejar de recibir estos correos, abre Mi Camino y desactiva los avisos por correo.' },
+  fr: { careSubject: '{name} vous a envoyé un mot', careBody: '{name} vous a envoyé un mot sur The Attunement Compass.', shareSubject: '{name} a partagé un signal avec vous', shareBody: '{name} a partagé un signal avec vous sur The Attunement Compass et serait reconnaissant de votre prière et de vos conseils.', counselSubject: '{name} vous a écrit sur The Attunement Compass', counselBody: '{name} a écrit une parole de conseil sur un signal partagé.', open: 'Ouvrir The Attunement Compass', privacy: "Par respect de la vie privée, cet e-mail ne contient pas ce qui a été écrit. Ouvrez la Boussole pour le lire.", footer: 'Vous recevez ceci parce que vous marchez avec {name} sur The Attunement Compass. Pour ne plus recevoir ces e-mails, ouvrez Mon Parcours et désactivez les avis par e-mail.' },
+  yo: { careSubject: '{name} fi ọ̀rọ̀ kan ránṣẹ́ sí ọ', careBody: '{name} fi ọ̀rọ̀ kan ránṣẹ́ sí ọ lórí The Attunement Compass.', shareSubject: '{name} pín àmì kan pẹ̀lú rẹ', shareBody: '{name} ti pín àmì kan pẹ̀lú rẹ lórí The Attunement Compass, yóò sì mọrírì àdúrà àti ìmọ̀ràn rẹ.', counselSubject: '{name} kọ̀wé sí ọ lórí The Attunement Compass', counselBody: '{name} kọ ọ̀rọ̀ ìmọ̀ràn kan lórí àmì tí a pín.', open: 'Ṣí The Attunement Compass', privacy: 'Fún ààbò àṣírí, ímeèlì yìí kò ní ohun tí a kọ. Ṣí Compass láti kà á.', footer: 'O ń gba èyí nítorí pé o ń bá {name} rìn lórí The Attunement Compass. Láti dá àwọn ímeèlì wọ̀nyí dúró, ṣí Ìrìn-Àjò Mi kí o sì pa ìfitónilétí ímeèlì.' },
+  ig: { careSubject: '{name} zitere gị okwu', careBody: '{name} zitere gị okwu na The Attunement Compass.', shareSubject: '{name} kekọrịtara gị akara', shareBody: '{name} kekọrịtara gị akara na The Attunement Compass, ọ ga-enwe ekele maka ekpere na ndụmọdụ gị.', counselSubject: '{name} degaara gị ozi na The Attunement Compass', counselBody: '{name} dere okwu ndụmọdụ n\'akara e kekọrịtara.', open: 'Mepee The Attunement Compass', privacy: 'Maka nzuzo, email a enweghị ihe e dere. Mepee Compass ka ị gụọ ya.', footer: 'Ị na-anata nke a n\'ihi na gị na {name} na-eje ije na The Attunement Compass. Iji kwụsị email ndị a, mepee Njem M ma gbanyụọ ọkwa email.' },
+  ha: { careSubject: '{name} ya aiko maka da kalma', careBody: '{name} ya aiko maka da kalma a The Attunement Compass.', shareSubject: '{name} ya raba alama tare da kai', shareBody: '{name} ya raba alama tare da kai a The Attunement Compass kuma zai yaba da addu\'arka da shawararka.', counselSubject: '{name} ya rubuta maka a The Attunement Compass', counselBody: '{name} ya rubuta kalmar shawara a kan alamar da aka raba.', open: 'Buɗe The Attunement Compass', privacy: 'Don sirri, wannan imel ba ya ƙunshe da abin da aka rubuta. Buɗe Compass don karanta shi.', footer: 'Kana karɓar wannan saboda kana tafiya tare da {name} a The Attunement Compass. Don daina karɓar waɗannan imel, buɗe Tafiyata ka kashe sanarwar imel.' },
 };
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -37,8 +37,8 @@ export function buildEmail(kind, lang, name) {
   const t = TEMPLATES[lang] || TEMPLATES.en;
   const n = cleanName(name);
   const link = SITE() + '/?open=journey';
-  const subject = fill(kind === 'share' ? t.shareSubject : t.counselSubject, n);
-  const body = fill(kind === 'share' ? t.shareBody : t.counselBody, n);
+  const subject = fill(kind === 'share' ? t.shareSubject : kind === 'care' ? t.careSubject : t.counselSubject, n);
+  const body = fill(kind === 'share' ? t.shareBody : kind === 'care' ? t.careBody : t.counselBody, n);
   const footer = fill(t.footer, n);
   const text = body + '\n\n' + t.open + ': ' + link + '\n\n' + t.privacy + '\n\n' + footer;
   const html = '<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:24px;color:#1d2533">' +
@@ -112,6 +112,17 @@ async function recipientsFor(kind, me, body) {
     if (!p) return null;
     return { ref: e.id, list: [{ id: e.user_id, name: p.partner_name }] };
   }
+  if (kind === 'care') {
+    if (!UUID.test(body.note_id || '')) return null;
+    const [n] = await rest('care_notes?id=eq.' + body.note_id + '&select=id,link,author,created_at');
+    if (!n || n.author !== me || !recent(n.created_at)) return null;
+    const [p] = await rest('partners?id=eq.' + n.link + '&select=id,owner,partner,owner_name,partner_name');
+    if (!p) return null;
+    // Named as the recipient knows the writer.
+    if (me === p.partner) return { ref: p.id, list: [{ id: p.owner, name: p.partner_name }] };
+    if (me === p.owner) return { ref: p.id, list: [{ id: p.partner, name: p.owner_name }] };
+    return null;
+  }
   return null;
 }
 
@@ -144,8 +155,17 @@ export async function sendNotices(me, kind, body) {
   return { sent, skipped };
 }
 
-export async function sendEmail(to, msg) {
-  const res = await call(RESEND_URL, { method: 'POST', headers: { Authorization: 'Bearer ' + process.env.RESEND_API_KEY }, body: { from: FROM, to: [to], subject: msg.subject, text: msg.text, html: msg.html } });
-  if (res.status >= 300) { console.error('resend', res.status, res.json && res.json.message); return false; }
-  return true;
+// Send one email. Returns { ok, reason }: reason is 'setup' when the sending domain or key is not ready
+// (something only the site owner can fix), or 'email' for anything else (worth trying again later).
+export async function sendEmailResult(to, msg) {
+  let res;
+  try {
+    res = await call(RESEND_URL, { method: 'POST', headers: { Authorization: 'Bearer ' + process.env.RESEND_API_KEY }, body: { from: FROM, to: [to], subject: msg.subject, text: msg.text, html: msg.html } });
+  } catch (e) { console.error('resend', e.message); return { ok: false, reason: 'email' }; }
+  if (res.status < 300) return { ok: true };
+  const message = (res.json && res.json.message) || '';
+  console.error('resend', res.status, message);
+  const setup = res.status === 401 || (res.status === 403 && /domain|verif|api key/i.test(message));
+  return { ok: false, reason: setup ? 'setup' : 'email' };
 }
+export async function sendEmail(to, msg) { return (await sendEmailResult(to, msg)).ok; }

@@ -46,6 +46,21 @@ The ebook says to use the Compass daily for at least thirty days, and that the t
 - **Forgot password?** sends a reset link. Unknown emails get the same message, so no one can find out who has an account. The link opens a "Set a new password" screen.
 - The guide function now uses Node `https`, retries once quietly on a timeout, and has `/api/health`.
 
+## COMPASS-06 · Sign-in page and church care
+
+- **Sign in** button at the top of every page when signed out, and its own address: `/signin`. My Journey is `/journey`, church care is `/care`.
+- **Church care** (`/care`) for anyone who has accepted a *pastor* invitation: everyone in their care in one list, the ones who need a word first.
+  - *Waiting for a word*: shared entries from the last 30 days with no counsel from the pastor since.
+  - *Quiet*: has not practised for 7 days or more.
+  - *New messages*: care notes not yet read.
+  - Progress (day of 30, last practised, steps kept) shows only when the person allows it. It is on by default for a pastor the person invited (they are told so when making the link), off for partners, and anyone can switch it per partner in My Journey.
+  - The words of an entry are still seen only when the person shares that entry.
+- **Care notes**: a pastor or partner and the person can write to each other outside any one entry. The other side gets an email notice (at most one every 6 hours per link, never with the words).
+- A pastor may now care for up to 300 people (partners still up to 50).
+- Email fixes: a code email that fails no longer uses up one of the three tries per hour, and CLUB 24E shows the reason.
+
+Run `supabase/compass-schema.sql` again in the SQL Editor (safe to re-run).
+
 ## COMPASS-05 · One journal with CLUB 24E
 
 A CLUB 24E member can link their account to their Attunement Compass journal. From then on, every signal they test inside CLUB 24E is saved to the same journal: the same 30 days, the same partners, the same steps.

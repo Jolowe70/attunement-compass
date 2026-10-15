@@ -360,3 +360,126 @@ grant update on public.link_codes to service_role;
 grant select, insert on public.journeys to service_role;
 grant insert, update on public.entries to service_role;
 grant select on public.reflections to service_role;
+
+-- ============================================================================
+-- COMPASS-06 · Church care
+-- A pastor sees everyone who asked them to walk with them, in one place, with who needs a word first.
+-- Progress (days practised, last practised, steps kept) is shown only when the person allows it; on by
+-- default for a pastor they invited themselves, off for partners, and anyone can change it at any time.
+-- The words of an entry are still never seen unless that entry is shared.
+-- Pastor and member can also write to each other outside any one entry ("care notes").
+
+alter table public.partners add column if not exists show_progress boolean not null default false;
+
+-- The person (owner) decides what each partner may see.
+drop policy if exists partners_owner_update on public.partners;
+create policy partners_owner_update on public.partners for update to authenticated
+  using (owner = (select auth.uid())) with check (owner = (select auth.uid()));
+grant update (show_progress) on public.partners to authenticated;
+
+-- Accepting: a pastor link shows progress from the start (the person was told when making the link).
+-- A pastor may care for up to 300 people; anyone may be a partner to up to 50.
+create or replace function public.accept_invite(p_code text, p_name text) returns text
+language plpgsql security definer set search_path = public as $$
+declare me uuid := auth.uid(); i public.invites;
+begin
+  if me is null then raise exception 'sign_in' using errcode = '42501'; end if;
+  if char_length(trim(coalesce(p_name, ''))) not between 1 and 40 then raise exception 'name' using errcode = '22023'; end if;
+  select * into i from public.invites where code = upper(trim(p_code)) for update;
+  if not found or i.used_at is not null or i.expires_at <= now() then raise exception 'invalid' using errcode = '22023'; end if;
+  if i.owner = me then raise exception 'self' using errcode = '22023'; end if;
+  if (select count(*) from public.partners where owner = i.owner) >= 3 then raise exception 'max_partners' using errcode = '22023'; end if;
+  if i.role = 'partner' and (select count(*) from public.partners where partner = me and role = 'partner') >= 50 then raise exception 'max_walking' using errcode = '22023'; end if;
+  if (select count(*) from public.partners where partner = me) >= 300 then raise exception 'max_walking' using errcode = '22023'; end if;
+  insert into public.partners (owner, partner, role, owner_name, partner_name, show_progress)
+    values (i.owner, me, i.role, i.owner_name, trim(p_name), i.role = 'pastor')
+    on conflict (owner, partner) do update set role = excluded.role, partner_name = excluded.partner_name;
+  update public.invites set used_by = me, used_at = now() where code = i.code;
+  return i.owner_name;
+end $$;
+
+-- Everyone I walk with, and how they are doing (progress only where they allow it).
+create or replace function public.care_overview()
+returns table (
+  id uuid, owner uuid, owner_name text, role text, since timestamptz, show_progress boolean,
+  round int, rounds_completed int, practised int, last_practised date,
+  steps_done int, steps_not_yet int, steps_pending int,
+  shared_count int, last_shared_at timestamptz
+)
+language sql stable security definer set search_path = public as $$
+  select p.id, p.owner, p.owner_name, p.role, p.created_at, p.show_progress,
+    case when p.show_progress then j.round end,
+    case when p.show_progress then j.rounds_completed end,
+    case when p.show_progress then (select count(distinct e.local_date)::int from public.entries e where e.user_id = p.owner and e.round = j.round) end,
+    case when p.show_progress then (select max(e.local_date) from public.entries e where e.user_id = p.owner) end,
+    case when p.show_progress then (select count(*)::int from public.entries e where e.user_id = p.owner and e.round = j.round and e.step is not null and e.step_status = 'done') end,
+    case when p.show_progress then (select count(*)::int from public.entries e where e.user_id = p.owner and e.round = j.round and e.step is not null and e.step_status = 'not_yet') end,
+    case when p.show_progress then (select count(*)::int from public.entries e where e.user_id = p.owner and e.round = j.round and e.step is not null and e.step_status = 'pending') end,
+    (select count(*)::int from public.entries e where e.user_id = p.owner and e.shared),
+    (select max(e.shared_at) from public.entries e where e.user_id = p.owner and e.shared)
+  from public.partners p
+  left join public.journeys j on j.user_id = p.owner
+  where p.partner = auth.uid()
+  order by p.owner_name;
+$$;
+revoke all on function public.care_overview() from public, anon;
+grant execute on function public.care_overview() to authenticated;
+
+-- Care notes: a short word between a person and someone walking with them, outside any one entry.
+create table if not exists public.care_notes (
+  id uuid primary key default gen_random_uuid(),
+  link uuid not null references public.partners(id) on delete cascade,
+  author uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  author_name text,
+  body text not null check (char_length(body) between 1 and 1000),
+  created_at timestamptz not null default now(),
+  read_at timestamptz
+);
+create index if not exists care_notes_link on public.care_notes (link, created_at desc);
+
+create or replace function public.in_link(p_link uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.partners where id = p_link and (owner = auth.uid() or partner = auth.uid()));
+$$;
+revoke all on function public.in_link(uuid) from public, anon;
+grant execute on function public.in_link(uuid) to authenticated;
+
+create or replace function public.care_note_before() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare p public.partners;
+begin
+  select * into p from public.partners where id = new.link;
+  if not found or auth.uid() not in (p.owner, p.partner) then raise exception 'not_allowed' using errcode = '42501'; end if;
+  if (select count(*) from public.care_notes where link = new.link and author = auth.uid() and created_at > now() - interval '1 day') >= 20 then
+    raise exception 'too_many' using errcode = '22023';
+  end if;
+  new.author := auth.uid();
+  new.author_name := case when auth.uid() = p.owner then p.owner_name else p.partner_name end;
+  new.created_at := now();
+  new.read_at := null;
+  return new;
+end $$;
+drop trigger if exists care_note_before on public.care_notes;
+create trigger care_note_before before insert on public.care_notes for each row execute function public.care_note_before();
+
+alter table public.care_notes enable row level security;
+drop policy if exists care_notes_select on public.care_notes;
+drop policy if exists care_notes_insert on public.care_notes;
+drop policy if exists care_notes_read on public.care_notes;
+drop policy if exists care_notes_delete on public.care_notes;
+create policy care_notes_select on public.care_notes for select to authenticated using (public.in_link(link));
+create policy care_notes_insert on public.care_notes for insert to authenticated with check (author = (select auth.uid()) and public.in_link(link));
+-- Only the one it was written to can mark it read.
+create policy care_notes_read on public.care_notes for update to authenticated
+  using (public.in_link(link) and author <> (select auth.uid())) with check (public.in_link(link) and author <> (select auth.uid()));
+create policy care_notes_delete on public.care_notes for delete to authenticated using (author = (select auth.uid()));
+revoke all on public.care_notes from anon, authenticated;
+grant select, insert, delete on public.care_notes to authenticated;
+grant update (read_at) on public.care_notes to authenticated;
+
+-- Email notices learn one more kind: a care note.
+alter table public.notices drop constraint if exists notices_kind_check;
+alter table public.notices add constraint notices_kind_check check (kind in ('share', 'counsel', 'care'));
+grant select on public.care_notes to service_role;
+
+notify pgrst, 'reload schema';

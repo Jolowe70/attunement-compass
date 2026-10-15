@@ -6,7 +6,7 @@
 //   - then reads and writes that journal on their behalf, checking every row belongs to them.
 // The Compass's secret keys stay here; CLUB 24E never receives them.
 import crypto from 'crypto';
-import { call, rest, restInsert, service, sendNotices, sendEmail, SUPABASE_URL, UUID } from '../lib/notices.mjs';
+import { call, rest, restInsert, service, sendNotices, sendEmailResult, SUPABASE_URL, UUID } from '../lib/notices.mjs';
 import { journeyState, pendingStep, modeForDay, localDate, DOMAIN_KEYS } from '../../src/journey.js';
 
 const CLUB_URL = (process.env.CLUB24E_SUPABASE_URL || 'https://xrbntbezqgdgrlpoccaf.supabase.co').replace(/\/+$/, '');
@@ -161,7 +161,7 @@ export const handler = async (event) => {
 
     if (action === 'link_start') {
       if (link) return reply(h, 200, { ok: true, linked: true });
-      const [prev] = await rest('link_codes?club_user=eq.' + club.id + '&select=sends,window_start');
+      const [prev] = await rest('link_codes?club_user=eq.' + club.id + '&select=club_user,email,code_hash,expires_at,attempts,sends,window_start');
       const inWindow = prev && Date.now() - new Date(prev.window_start).getTime() < 3600e3;
       if (inWindow && prev.sends >= MAX_SENDS_PER_HOUR) return reply(h, 429, { ok: false, error: 'too_many_codes' });
       const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
@@ -170,8 +170,14 @@ export const handler = async (event) => {
         expires_at: new Date(Date.now() + CODE_MINUTES * 60e3).toISOString(),
         sends: inWindow ? prev.sends + 1 : 1, window_start: inWindow ? prev.window_start : new Date().toISOString()
       });
-      const sent = await sendEmail(club.email, { subject: CODE_EMAIL.subject, text: CODE_EMAIL.text(code), html: CODE_EMAIL.html(code) });
-      if (!sent) return reply(h, 502, { ok: false, error: 'email' });
+      const sent = await sendEmailResult(club.email, { subject: CODE_EMAIL.subject, text: CODE_EMAIL.text(code), html: CODE_EMAIL.html(code) });
+      if (!sent.ok) {
+        // An email that never left does not use up one of the hour's tries.
+        // Put back what was there (an earlier code still works), or remove the row.
+        if (prev) await upsert('link_codes', prev).catch(() => {});
+        else await del('link_codes?club_user=eq.' + club.id).catch(() => {});
+        return reply(h, 502, { ok: false, error: sent.reason === 'setup' ? 'email_setup' : 'email' });
+      }
       return reply(h, 200, { ok: true, sent: true, email: mask(club.email) });
     }
 

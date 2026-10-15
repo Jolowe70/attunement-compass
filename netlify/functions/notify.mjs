@@ -1,4 +1,4 @@
-// Email notices for discernment partners (COMPASS-04). The work is in netlify/lib/notices.mjs.
+// Email notices for discernment partners (COMPASS-04; care notes COMPASS-06). The work is in netlify/lib/notices.mjs.
 import { whoIs, sendNotices, buildEmail, TEMPLATES } from '../lib/notices.mjs';
 export { buildEmail, TEMPLATES };
 
@@ -11,7 +11,7 @@ export const handler = async (event) => {
   let body;
   try { body = JSON.parse(event.body || '{}'); } catch (e) { return reply(400, { ok: false, error: 'bad_json' }); }
   const kind = body.kind;
-  if (kind !== 'share' && kind !== 'counsel') return reply(400, { ok: false, error: 'kind' });
+  if (kind !== 'share' && kind !== 'counsel' && kind !== 'care') return reply(400, { ok: false, error: 'kind' });
   try {
     const me = token ? await whoIs(token) : null;
     if (!me) return reply(401, { ok: false, error: 'sign_in' });

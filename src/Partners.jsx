@@ -2,10 +2,14 @@ import { useState, useEffect } from "react";
 import * as DB from "./supa.js";
 import { S } from "./Journey.jsx";
 import { fmt } from "./strings-journey.js";
+import { CareNotes } from "./Care.jsx";
 
 const GOLD = "#C9A84C", BLUE = "#7B9EBE", GREEN = "#82C9A0", RED = "#E07B6A";
 const PROVERBS_11_14 = "Proverbs 11:14";
-const inviteLink = (code) => location.origin + "/?invite=" + code;
+// Invitation links always carry the real address, whichever address the app was opened on
+// (only a copy running on this computer for testing keeps its own).
+const SITE = /^(localhost|127\.)/.test(location.hostname) ? location.origin : (import.meta.env.VITE_SITE_URL || "https://attunementcompass.com");
+const inviteLink = (code) => SITE + "/?invite=" + code;
 
 // A conversation of counsel under one entry: the owner and the partners it was shared with.
 export function CounselThread({ J, me, entryId, items, canWrite, isOwner, onChanged }) {
@@ -49,7 +53,8 @@ export function CounselThread({ J, me, entryId, items, canWrite, isOwner, onChan
 }
 
 // The person's own partners, and invitations they have sent.
-export function PartnersCard({ J, owned, invites, defaultName, reload }) {
+export function PartnersCard({ J, me, owned, invites, defaultName, reload, notes = [] }) {
+  const [openNotes, setOpenNotes] = useState(null);
   const [role, setRole] = useState(null);
   const [name, setName] = useState(defaultName || "");
   useEffect(() => { if (defaultName && !name) setName(defaultName); }, [defaultName]);
@@ -77,6 +82,12 @@ export function PartnersCard({ J, owned, invites, defaultName, reload }) {
     if (!window.confirm(fmt(J.confirmRemove, { name: p.partner_name }))) return;
     try { await DB.endPartnership(p.id); await reload(); } catch (x) { setErr(J.errorLoad); }
   }
+  const [prog, setProg] = useState({}); // shown at once; saved behind
+  async function progress(p, on) {
+    setProg((m) => ({ ...m, [p.id]: on }));
+    try { await DB.setShowProgress(p.id, on); await reload(); }
+    catch (x) { setProg((m) => ({ ...m, [p.id]: !on })); setErr(J.errorLoad); }
+  }
   async function cancel(code) { try { await DB.cancelInvite(code); if (made === code) setMade(null); await reload(); } catch (x) { setErr(J.errorLoad); } }
 
   const full = owned.length >= 3;
@@ -87,12 +98,25 @@ export function PartnersCard({ J, owned, invites, defaultName, reload }) {
       <p style={{ ...S.verse, fontSize: 14 }}>"{J.counselVerse}" <span style={{ fontStyle: "normal", fontSize: 12, color: BLUE }}>— {PROVERBS_11_14} · KJV</span></p>
 
       {owned.length === 0 && <p style={{ ...S.small, margin: "8px 0" }}>{J.noPartners}</p>}
-      {owned.map((p) => (
-        <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "10px 0", borderTop: "1px solid #1A2840" }}>
-          <div><span style={{ color: "#F0E6CC" }}>{p.partner_name}</span> <span style={{ fontSize: 12, color: BLUE }}>· {J.roleNames[p.role]}</span></div>
-          <button style={{ ...S.link, fontSize: 12.5, color: "#8A5A50" }} onClick={() => remove(p)}>{J.remove}</button>
-        </div>
-      ))}
+      {owned.map((p) => {
+        const unread = notes.filter((n) => n.link === p.id && n.author !== me && !n.read_at).length;
+        return (
+          <div key={p.id} style={{ padding: "10px 0", borderTop: "1px solid #1A2840" }} data-testid="partnerrow">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+              <div><span style={{ color: "#F0E6CC" }}>{p.partner_name}</span> <span style={{ fontSize: 12, color: BLUE }}>· {J.roleNames[p.role]}</span></div>
+              <span style={{ display: "flex", gap: 12 }}>
+                <button style={{ ...S.link, fontSize: 12.5 }} onClick={() => setOpenNotes(openNotes === p.id ? null : p.id)}>{J.messagesToggle}{unread ? " (" + unread + ")" : ""}</button>
+                <button style={{ ...S.link, fontSize: 12.5, color: "#8A5A50" }} onClick={() => remove(p)}>{J.remove}</button>
+              </span>
+            </div>
+            <label style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 13, color: "#8A9EC0", marginTop: 6, cursor: "pointer" }}>
+              <input type="checkbox" checked={prog[p.id] !== undefined ? prog[p.id] : !!p.show_progress} onChange={(e) => progress(p, e.target.checked)} style={{ marginTop: 3 }} data-testid="progresstoggle" />
+              <span>{J.showProgress}<span style={{ display: "block", fontSize: 11.5, color: "#5A7090" }}>{J.showProgressNote}</span></span>
+            </label>
+            {openNotes === p.id && <CareNotes J={J} me={me} link={p.id} notes={notes} reload={reload} />}
+          </div>
+        );
+      })}
 
       {invites.length > 0 && (
         <div style={{ marginTop: 10 }}>
@@ -128,6 +152,7 @@ export function PartnersCard({ J, owned, invites, defaultName, reload }) {
       )}
       {!full && role && !made && (
         <div style={{ marginTop: 14 }}>
+          {role === "pastor" && <p style={{ ...S.small, color: GOLD, marginBottom: 10 }}>{J.pastorProgressNote}</p>}
           <input style={S.input} value={name} maxLength={40} onChange={(e) => setName(e.target.value)} placeholder={J.yourNameForInvite} aria-label={J.yourNameForInvite} />
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={() => setRole(null)} style={S.quiet}>{J.cancel}</button>
@@ -166,7 +191,7 @@ export function InviteAccept({ J, code, user, defaultName, onDone }) {
       {!bad && info.status === "self" && <p style={S.text}>{J.inviteSelf}</p>}
       {!bad && info.status === "ok" && (
         <>
-          <p style={{ ...S.text, marginBottom: 12 }}>{fmt(J.inviteText, { name: info.owner_name, role: J.roleLower[info.role] })}</p>
+          <p style={{ ...S.text, marginBottom: 12 }}>{fmt(info.role === "pastor" ? J.inviteTextPastor : J.inviteText, { name: info.owner_name, role: J.roleLower[info.role] })}</p>
           {!user && <p style={{ ...S.small, color: GOLD }}>{J.inviteSignIn}</p>}
           {user && (
             <>
@@ -186,7 +211,7 @@ export function InviteAccept({ J, code, user, defaultName, onDone }) {
 }
 
 // People who invited me: their shared entries and our counsel.
-export function WalkingWith({ T, J, me, walking, shared, counsel, reload }) {
+export function WalkingWith({ T, J, me, walking, shared, counsel, reload, notes = [] }) {
   async function stop(p) {
     if (!window.confirm(fmt(J.confirmStop, { name: p.owner_name }))) return;
     try { await DB.endPartnership(p.id); await reload(); } catch (x) { /* shown on next load */ }
@@ -217,7 +242,8 @@ export function WalkingWith({ T, J, me, walking, shared, counsel, reload }) {
                 </div>
               );
             })}
-            <button style={{ ...S.link, fontSize: 12.5, color: "#8A5A50" }} onClick={() => stop(p)}>{fmt(J.stopWalking, { name: p.owner_name })}</button>
+            <CareNotes J={J} me={me} link={p.id} notes={notes} reload={reload} />
+            <button style={{ ...S.link, fontSize: 12.5, color: "#8A5A50", marginTop: 10 }} onClick={() => stop(p)}>{fmt(J.stopWalking, { name: p.owner_name })}</button>
           </div>
         );
       })}

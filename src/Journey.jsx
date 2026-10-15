@@ -4,6 +4,7 @@ import { journeyState, weekEntries, pendingStep, patterns, DOMAIN_KEYS, localDat
 import PassageCard, { lookupPassages } from "./PassageCard.jsx";
 import { fmt } from "./strings-journey.js";
 import { PartnersCard, InviteAccept, WalkingWith, CounselThread, EmailNotices } from "./Partners.jsx";
+import { NewWords, CareSummary } from "./Care.jsx";
 
 // Exact King James words used on these screens.
 export const ROMANS_8_1 = { ref: "Romans 8:1", text: "There is therefore now no condemnation to them which are in Christ Jesus, who walk not after the flesh, but after the Spirit." };
@@ -80,7 +81,7 @@ export function DayDots({ count }) {
   );
 }
 
-function AuthBox({ J, onError }) {
+export function AuthBox({ J, onError, title, text }) {
   const [mode, setMode] = useState("signin");
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
@@ -108,8 +109,8 @@ function AuthBox({ J, onError }) {
   }
   return (
     <div style={S.card(GOLD)}>
-      <div style={S.label}>{J.signInTitle}</div>
-      <p style={{ ...S.small, marginBottom: 14 }}>{J.signInText}</p>
+      <div style={S.label}>{title || J.signInTitle}</div>
+      <p style={{ ...S.small, marginBottom: 14 }}>{text || J.signInText}</p>
       {DB.googleOn && (
         <button onClick={() => DB.signInGoogle()} style={{ ...S.btn(BLUE), marginBottom: 14, textTransform: "none", letterSpacing: "0.04em" }}>{J.google}</button>
       )}
@@ -303,7 +304,7 @@ function Reflection({ T, J, lang, journey, state, entries, askCompass }) {
 }
 
 export default function JourneyView({ T, J, lang, user, journey, entries, loading, error, recovery, onRecovered, reload, onBack, onTest, onStepSet, askCompass,
-  partners = [], invites = [], shared = [], counsel = [], inviteCode, onInviteDone }) {
+  partners = [], invites = [], shared = [], counsel = [], notes = [], inviteCode, onInviteDone, onOpenCare }) {
   const me = user ? user.id : null;
   const owned = partners.filter((p) => p.owner === me);
   const walking = partners.filter((p) => p.partner === me);
@@ -351,7 +352,9 @@ export default function JourneyView({ T, J, lang, user, journey, entries, loadin
       {user && recovery && <NewPassword J={J} onDone={onRecovered} />}
       {inviteCode && <InviteAccept J={J} code={inviteCode} user={user} defaultName={journey && journey.display_name} onDone={onInviteDone} />}
       {/* Those someone has asked to walk with come first: it is usually why they opened this page. */}
-      {user && !loading && <WalkingWith T={T} J={J} me={me} walking={walking} shared={shared} counsel={counsel} reload={reload} />}
+      {user && !loading && <NewWords J={J} me={me} notes={notes} partners={partners} reload={reload} />}
+      {user && !loading && onOpenCare && <CareSummary J={J} me={me} walking={walking} shared={shared} counsel={counsel} onOpen={onOpenCare} />}
+      {user && !loading && <WalkingWith T={T} J={J} me={me} walking={walking.filter((p) => p.role !== "pastor")} shared={shared} counsel={counsel} notes={notes} reload={reload} />}
       {(error || actionError) && <p role="alert" style={{ ...S.text, color: RED, fontSize: 13.5, marginBottom: 14 }}>{actionError || error}</p>}
 
       {!user && (<>{pitch}<AuthBox J={J} /><p style={S.small}>{J.privacy}</p></>)}
@@ -405,7 +408,7 @@ export default function JourneyView({ T, J, lang, user, journey, entries, loadin
         </>
       )}
 
-      {user && !loading && <PartnersCard J={J} owned={owned} invites={invites} defaultName={journey && journey.display_name} reload={reload} />}
+      {user && !loading && <PartnersCard J={J} me={me} notes={notes} owned={owned} invites={invites} defaultName={journey && journey.display_name} reload={reload} />}
       {user && !loading && (owned.length > 0 || walking.length > 0) && <EmailNotices J={J} />}
       {user && !loading && <LinkedApps J={J} />}
 

@@ -139,3 +139,15 @@ export async function setEmailPref(on) {
 // Apps linked to this journal (COMPASS-05: CLUB 24E).
 export async function listLinks() { const c = await sb(); return ok(await c.from("links").select("club_user,app,email,linked_at")); }
 export async function unlinkApp(clubUser) { const c = await sb(); ok(await c.from("links").delete().eq("club_user", clubUser)); }
+
+// Church care (COMPASS-06).
+export async function careOverview() { const c = await sb(); return ok(await c.rpc("care_overview")); }
+export async function listCareNotes() { const c = await sb(); return ok(await c.from("care_notes").select("*").order("created_at", { ascending: false }).limit(500)); }
+export async function addCareNote(link, body) { const c = await sb(); return ok(await c.from("care_notes").insert({ link, body }).select().single()); }
+export async function markCareRead(ids) {
+  if (!ids.length) return;
+  const c = await sb();
+  ok(await c.from("care_notes").update({ read_at: new Date().toISOString() }).in("id", ids.slice(0, 200)));
+}
+export async function deleteCareNote(id) { const c = await sb(); ok(await c.from("care_notes").delete().eq("id", id)); }
+export async function setShowProgress(id, on) { const c = await sb(); ok(await c.from("partners").update({ show_progress: on }).eq("id", id)); }

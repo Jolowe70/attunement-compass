@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import * as Bible from "./bible.js";
 import PassageCard, { lookupPassages } from "./PassageCard.jsx";
-import JourneyView, { StepCheck, S } from "./Journey.jsx";
+import JourneyView, { StepCheck, S, AuthBox } from "./Journey.jsx";
+import CareView from "./Care.jsx";
 import * as DB from "./supa.js";
 import { journeyState, pendingStep, selfSource, localDate, DOMAIN_KEYS, TEST_KEYS } from "./journey.js";
 import { journeyText, fmt } from "./strings-journey.js";
@@ -647,7 +648,21 @@ export default function App() {
   const topRef = useRef(null);
 
   // The 30-Day Attunement
-  const [view, setView] = useState("compass");
+  // Each page has its own address: /signin, /journey, /care (the Compass itself is /).
+  const PATHS = { compass: "/", signin: "/signin", journey: "/journey", care: "/care" };
+  const viewFromPath = () => ({ "/signin": "signin", "/journey": "journey", "/care": "care" })[location.pathname.replace(/\/+$/, "")] || "compass";
+  const [view, setViewState] = useState(viewFromPath);
+  function setView(v) {
+    setViewState(v);
+    try { if (location.pathname !== PATHS[v]) history.pushState(null, "", PATHS[v] + location.search + location.hash); } catch (e) { /* ignore */ }
+  }
+  useEffect(() => {
+    const back = () => setViewState(viewFromPath());
+    window.addEventListener("popstate", back);
+    return () => window.removeEventListener("popstate", back);
+  }, []);
+  const [overview, setOverview] = useState([]);
+  const [notes, setNotes] = useState([]);
   const [user, setUser] = useState(null);
   const [journey, setJourney] = useState(null);
   const [entries, setEntries] = useState([]);
@@ -681,13 +696,15 @@ export default function App() {
   async function reloadJourney() {
     if (!DB.journeyAvailable) return;
     const u = await DB.currentUser().catch(() => null);
-    if (!u) { loadedOnce.current = false; setJourney(null); setEntries([]); setPartners([]); setInvites([]); setSharedWithMe([]); setCounsel([]); return; }
+    if (!u) { loadedOnce.current = false; setJourney(null); setEntries([]); setPartners([]); setInvites([]); setSharedWithMe([]); setCounsel([]); setOverview([]); setNotes([]); return; }
     if (!loadedOnce.current) setJLoading(true);
     try {
-      const [j, es, ps, inv, sh] = await Promise.all([DB.getJourney(), DB.listEntries(u.id), DB.listPartners(), DB.listInvites(), DB.listSharedWithMe(u.id)]);
+      // Church care (COMPASS-06) loads alongside; if its tables are not there yet, the rest still works.
+      const [j, es, ps, inv, sh, ov, ns] = await Promise.all([DB.getJourney(), DB.listEntries(u.id), DB.listPartners(), DB.listInvites(), DB.listSharedWithMe(u.id),
+        DB.careOverview().catch(() => []), DB.listCareNotes().catch(() => [])]);
       const ids = (es || []).filter((e) => e.shared).map((e) => e.id).concat((sh || []).map((e) => e.id));
       const cs = await DB.listCounsel(ids).catch(() => []);
-      setJourney(j); setEntries(es || []); setPartners(ps || []); setInvites(inv || []); setSharedWithMe(sh || []); setCounsel(cs || []); setJError("");
+      setJourney(j); setEntries(es || []); setPartners(ps || []); setInvites(inv || []); setSharedWithMe(sh || []); setCounsel(cs || []); setOverview(ov || []); setNotes(ns || []); setJError("");
     } catch (e) {
       setJError("load"); // keep what we have and say so
     }
@@ -724,6 +741,10 @@ export default function App() {
     if (accepted) reloadJourney();
   }
   const ownedPartners = partners.filter((p) => user && p.owner === user.id).length;
+  const pastoral = partners.filter((p) => user && p.partner === user.id && p.role === "pastor");
+  function openCare() { setView("care"); reloadJourney(); setTimeout(scrollTop, 50); }
+  // Signed in from the sign-in page: on to My Journey.
+  useEffect(() => { if (user && view === "signin") { setView("journey"); reloadJourney(); } }, [user && user.id, view]);
 
   const T = { ...UI_TEXT[lang], ...EXTRA[lang] };
   const stage = T.stages[stageIndex];
@@ -862,14 +883,30 @@ export default function App() {
 
         {/* Header */}
         <div style={{ textAlign: "center", paddingTop: 56, paddingBottom: 36, animation: "fadeUp 0.8s ease forwards" }}>
-          <div style={{ display: "flex", justifyContent: DB.journeyAvailable ? "space-between" : "flex-end", alignItems: "center", gap: 10, marginBottom: 16 }}>
+          <div style={{ display: "flex", justifyContent: DB.journeyAvailable ? "space-between" : "flex-end", alignItems: "center", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
             {DB.journeyAvailable && (
-              <button onClick={() => (view === "journey" ? testFromJourney() : openJourney())} data-testid="nav-journey"
-                style={{ background: view === "journey" ? "#C9A84C15" : "#0D1829", border: "1px solid #2A3A5C", borderRadius: 8, padding: "6px 14px", color: "#C9A84C", fontSize: 13, fontFamily: "'Cormorant Garamond',serif", cursor: "pointer" }}>
-                {view === "journey" ? "✦ " + J.back : "✦ " + J.navJourney + (jstate && !jstate.complete ? " · " + jstate.day + "/30" : "")}
-              </button>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button onClick={() => (view === "journey" ? testFromJourney() : openJourney())} data-testid="nav-journey"
+                  style={{ background: view === "journey" ? "#C9A84C15" : "#0D1829", border: "1px solid #2A3A5C", borderRadius: 8, padding: "6px 14px", color: "#C9A84C", fontSize: 13, fontFamily: "'Cormorant Garamond',serif", cursor: "pointer" }}>
+                  {view === "journey" ? "✦ " + J.back : "✦ " + J.navJourney + (jstate && !jstate.complete ? " · " + jstate.day + "/30" : "")}
+                </button>
+                {user && pastoral.length > 0 && (
+                  <button onClick={() => (view === "care" ? testFromJourney() : openCare())} data-testid="nav-care"
+                    style={{ background: view === "care" ? "#C9A84C15" : "#0D1829", border: "1px solid #2A3A5C", borderRadius: 8, padding: "6px 14px", color: "#C9A84C", fontSize: 13, fontFamily: "'Cormorant Garamond',serif", cursor: "pointer" }}>
+                    {"✦ " + J.careNav + " · " + pastoral.length}
+                  </button>
+                )}
+              </div>
             )}
-            <LanguagePicker lang={lang} setLang={(l) => { setLang(l); reset(); }} />
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              {DB.journeyAvailable && !user && view !== "signin" && (
+                <button onClick={() => { setView("signin"); setTimeout(scrollTop, 50); }} data-testid="nav-signin"
+                  style={{ background: "#C9A84C22", border: "1px solid #C9A84C88", borderRadius: 8, padding: "6px 14px", color: "#F0E6CC", fontSize: 13, fontFamily: "'Cormorant Garamond',serif", cursor: "pointer" }}>
+                  {J.signInNav}
+                </button>
+              )}
+              <LanguagePicker lang={lang} setLang={(l) => { setLang(l); reset(); }} />
+            </div>
           </div>
           <div style={{ letterSpacing: "0.25em", fontSize: 10.5, color: "#4A6080", textTransform: "uppercase", marginBottom: 14, fontFamily: "'Cormorant Garamond',serif" }}>
             {T.eyebrow}
@@ -884,8 +921,20 @@ export default function App() {
           </p>
         </div>
 
+        {view === "signin" && (
+          <div style={{ animation: "fadeUp 0.45s ease forwards" }} data-testid="signinpage">
+            {user ? <p style={S.small}>{J.loading}</p> : <AuthBox J={J} title={J.signInPageTitle} text={J.signInPageText} />}
+            <button onClick={testFromJourney} style={{ ...S.quiet, width: "100%" }}>{J.back}</button>
+          </div>
+        )}
+
+        {view === "care" && (
+          <CareView T={T} J={J} user={user} loading={jLoading} walking={partners.filter((p) => user && p.partner === user.id)} overview={overview}
+            shared={sharedWithMe} counsel={counsel} notes={notes} reload={reloadJourney} onBack={openJourney} />
+        )}
+
         {view === "journey" && (
-          <JourneyView partners={partners} invites={invites} shared={sharedWithMe} counsel={counsel} inviteCode={inviteCode} onInviteDone={inviteDone}
+          <JourneyView partners={partners} notes={notes} onOpenCare={openCare} invites={invites} shared={sharedWithMe} counsel={counsel} inviteCode={inviteCode} onInviteDone={inviteDone}
             T={T} J={J} lang={lang} user={user} error={jError ? J.errorLoad : ""} recovery={recovery} onRecovered={() => setRecovery(false)} journey={journey} entries={entries} loading={jLoading}
             reload={reloadJourney} onBack={testFromJourney} onTest={testFromJourney} onStepSet={stepSet} askCompass={askCompass} />
         )}
