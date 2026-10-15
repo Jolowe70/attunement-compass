@@ -653,6 +653,21 @@ export default function App() {
   const [entries, setEntries] = useState([]);
   const [jLoading, setJLoading] = useState(false);
   const [jError, setJError] = useState("");
+  const loadedOnce = useRef(false); // show "Loading…" only the first time; later refreshes update in place
+  const [recovery, setRecovery] = useState(false);
+  const [partners, setPartners] = useState([]);
+  const [invites, setInvites] = useState([]);
+  const [sharedWithMe, setSharedWithMe] = useState([]);
+  const [counsel, setCounsel] = useState([]);
+  const [shareOn, setShareOn] = useState(false);
+  // An invitation link (?invite=CODE) survives signing in or creating an account.
+  const [inviteCode, setInviteCode] = useState(() => {
+    try {
+      const q = new URLSearchParams(location.search).get("invite");
+      if (q) { localStorage.setItem("ac-invite", q); return q; }
+      return localStorage.getItem("ac-invite") || null;
+    } catch (e) { return new URLSearchParams(location.search).get("invite"); }
+  });
   const [saveOn, setSaveOn] = useState(true);
   const [saveMsg, setSaveMsg] = useState("");
   const [myTests, setMyTests] = useState({});
@@ -666,14 +681,17 @@ export default function App() {
   async function reloadJourney() {
     if (!DB.journeyAvailable) return;
     const u = await DB.currentUser().catch(() => null);
-    if (!u) { setJourney(null); setEntries([]); return; }
-    setJLoading(true);
+    if (!u) { loadedOnce.current = false; setJourney(null); setEntries([]); setPartners([]); setInvites([]); setSharedWithMe([]); setCounsel([]); return; }
+    if (!loadedOnce.current) setJLoading(true);
     try {
-      const [j, es] = await Promise.all([DB.getJourney(), DB.listEntries()]);
-      setJourney(j); setEntries(es || []); setJError("");
+      const [j, es, ps, inv, sh] = await Promise.all([DB.getJourney(), DB.listEntries(u.id), DB.listPartners(), DB.listInvites(), DB.listSharedWithMe(u.id)]);
+      const ids = (es || []).filter((e) => e.shared).map((e) => e.id).concat((sh || []).map((e) => e.id));
+      const cs = await DB.listCounsel(ids).catch(() => []);
+      setJourney(j); setEntries(es || []); setPartners(ps || []); setInvites(inv || []); setSharedWithMe(sh || []); setCounsel(cs || []); setJError("");
     } catch (e) {
       setJError("load"); // keep what we have and say so
     }
+    loadedOnce.current = true;
     setJLoading(false);
   }
 
@@ -681,9 +699,15 @@ export default function App() {
     if (!DB.journeyAvailable) return;
     let stop = () => {};
     // Coming back from a confirmation email or Google sign-in: open the journey.
-    if (/access_token|error_description|code=/.test(location.hash + location.search)) setView("journey");
-    DB.currentUser().then(setUser).catch(() => {});
-    DB.onAuth((u) => setUser(u)).then((f) => { stop = f; }).catch(() => {});
+    const back = location.hash + location.search;
+    if (/access_token|error_description|code=/.test(back)) setView("journey");
+    // A password-reset link: read it from the address, because the library may announce it before we listen.
+    if (/type=recovery/.test(back)) setRecovery(true);
+    if (inviteCode) setView("journey");
+    DB.onAuth((u, event) => {
+      setUser(u);
+      if (event === "PASSWORD_RECOVERY") { setRecovery(true); setView("journey"); }
+    }).then((f) => { stop = f; DB.currentUser().then(setUser).catch(() => {}); }).catch(() => {});
     return () => stop();
   }, []);
   useEffect(() => { reloadJourney(); }, [user && user.id]);
@@ -691,6 +715,13 @@ export default function App() {
   function openJourney() { setView("journey"); reloadJourney(); setTimeout(scrollTop, 50); }
   function testFromJourney() { setView("compass"); reset(); reloadJourney(); }
   function stepSet(entry, status) { return DB.setStep(entry.id, status); }
+  function inviteDone(accepted) {
+    try { localStorage.removeItem("ac-invite"); } catch (e) { /* ignore */ }
+    setInviteCode(null);
+    if (/invite=/.test(location.search)) history.replaceState(null, "", location.pathname);
+    if (accepted) reloadJourney();
+  }
+  const ownedPartners = partners.filter((p) => user && p.owner === user.id).length;
 
   const T = { ...UI_TEXT[lang], ...EXTRA[lang] };
   const stage = T.stages[stageIndex];
@@ -758,6 +789,7 @@ export default function App() {
         source: analysisData ? analysisData.source : null, my_source: mySource, summary: analysisData ? analysisData.summary : null,
         tests: analysisData ? analysisData.tests : null, my_tests: session.mode !== "guided" ? myTests : null,
         stance: r.stance, prayer: r.prayer, passages: r.passages, step: r.step, community: r.community,
+        shared: shareOn && ownedPartners > 0, shared_at: shareOn && ownedPartners > 0 ? new Date().toISOString() : null,
       });
       setSaveMsg(J.saved);
       reloadJourney();
@@ -789,7 +821,7 @@ export default function App() {
   function reset() {
     setStageIndex(0); setSignal(""); setPressure(""); setDomain(""); setCrisis(false);
     setAnalysisData(null); setResponseData(null); setError(""); setSession({});
-    setMyTests({}); setMySource(null); setSelfOpen(false); setSaveMsg("");
+    setMyTests({}); setMySource(null); setSelfOpen(false); setSaveMsg(""); setShareOn(false); // sharing is chosen fresh every time
     setTimeout(scrollTop, 100);
   }
 
@@ -849,7 +881,8 @@ export default function App() {
         </div>
 
         {view === "journey" && (
-          <JourneyView T={T} J={J} lang={lang} user={user} error={jError ? J.errorLoad : ""} journey={journey} entries={entries} loading={jLoading}
+          <JourneyView partners={partners} invites={invites} shared={sharedWithMe} counsel={counsel} inviteCode={inviteCode} onInviteDone={inviteDone}
+            T={T} J={J} lang={lang} user={user} error={jError ? J.errorLoad : ""} recovery={recovery} onRecovered={() => setRecovery(false)} journey={journey} entries={entries} loading={jLoading}
             reload={reloadJourney} onBack={testFromJourney} onTest={testFromJourney} onStepSet={stepSet} askCompass={askCompass} />
         )}
 
@@ -938,6 +971,11 @@ export default function App() {
             {user && (
               <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13.5, color: "#8A9EC0", marginBottom: 16, cursor: "pointer" }}>
                 <input type="checkbox" checked={saveOn} onChange={(e) => setSaveOn(e.target.checked)} data-testid="saveon" /> {J.saveToJournal}
+              </label>
+            )}
+            {user && saveOn && ownedPartners > 0 && (
+              <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13.5, color: "#7B9EBE", margin: "-6px 0 16px", cursor: "pointer" }}>
+                <input type="checkbox" checked={shareOn} onChange={(e) => setShareOn(e.target.checked)} data-testid="shareon" /> {J.shareWithPartners}
               </label>
             )}
 

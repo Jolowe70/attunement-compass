@@ -101,3 +101,171 @@ grant select, insert, delete on public.journeys, public.entries, public.reflecti
 grant update (step_status, step_checked_at, note) on public.entries to authenticated;
 grant update (display_name, lang, round, round_started_at, rounds_completed) on public.journeys to authenticated;
 grant update (body) on public.reflections to authenticated;
+
+-- ============================================================================
+-- COMPASS-03 · Discernment partners
+-- The fourth test asks whether a signal can stand in the light of the body of Christ.
+-- A person invites up to three partners (or their pastor) with a one-time link. Partners see ONLY the
+-- entries the person chooses to share, and can answer with words of counsel. Either side can end it.
+
+alter table public.entries add column if not exists shared boolean not null default false;
+alter table public.entries add column if not exists shared_at timestamptz;
+
+create table if not exists public.invites (
+  code text primary key,
+  owner uuid not null references auth.users(id) on delete cascade,
+  owner_name text not null check (char_length(owner_name) between 1 and 40),
+  role text not null default 'partner' check (role in ('partner', 'pastor')),
+  created_at timestamptz not null default now(),
+  expires_at timestamptz not null default now() + interval '7 days',
+  used_by uuid references auth.users(id) on delete set null,
+  used_at timestamptz
+);
+create index if not exists invites_owner on public.invites (owner);
+
+create table if not exists public.partners (
+  id uuid primary key default gen_random_uuid(),
+  owner uuid not null references auth.users(id) on delete cascade,
+  partner uuid not null references auth.users(id) on delete cascade,
+  role text not null default 'partner' check (role in ('partner', 'pastor')),
+  owner_name text not null check (char_length(owner_name) between 1 and 40),
+  partner_name text not null check (char_length(partner_name) between 1 and 40),
+  created_at timestamptz not null default now(),
+  unique (owner, partner),
+  check (owner <> partner)
+);
+create index if not exists partners_partner on public.partners (partner);
+
+create table if not exists public.counsel (
+  id uuid primary key default gen_random_uuid(),
+  entry_id uuid not null references public.entries(id) on delete cascade,
+  author uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  author_name text,
+  body text not null check (char_length(body) between 1 and 1000),
+  created_at timestamptz not null default now()
+);
+create index if not exists counsel_entry on public.counsel (entry_id, created_at);
+
+-- Helpers (security definer so policies never loop through each other).
+create or replace function public.is_partner_of(p_owner uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.partners where owner = p_owner and partner = auth.uid());
+$$;
+
+create or replace function public.can_see_entry(p_entry uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.entries e
+    where e.id = p_entry
+      and (e.user_id = auth.uid() or (e.shared and exists (select 1 from public.partners p where p.owner = e.user_id and p.partner = auth.uid())))
+  );
+$$;
+
+create or replace function public.entry_owner(p_entry uuid) returns uuid
+language sql stable security definer set search_path = public as $$
+  select user_id from public.entries where id = p_entry;
+$$;
+
+-- Partners can read the entries that were shared with them.
+drop policy if exists entries_partner_select on public.entries;
+create policy entries_partner_select on public.entries for select to authenticated
+  using (shared and public.is_partner_of(user_id));
+
+-- Invites: the owner sees and cancels their own. They are created and accepted only through the functions below.
+alter table public.invites enable row level security;
+drop policy if exists invites_own_select on public.invites;
+drop policy if exists invites_own_delete on public.invites;
+create policy invites_own_select on public.invites for select to authenticated using (owner = (select auth.uid()));
+create policy invites_own_delete on public.invites for delete to authenticated using (owner = (select auth.uid()) and used_at is null);
+
+-- Partners: both sides can see the link, and either side can end it.
+alter table public.partners enable row level security;
+drop policy if exists partners_both_select on public.partners;
+drop policy if exists partners_both_delete on public.partners;
+create policy partners_both_select on public.partners for select to authenticated using (owner = (select auth.uid()) or partner = (select auth.uid()));
+create policy partners_both_delete on public.partners for delete to authenticated using (owner = (select auth.uid()) or partner = (select auth.uid()));
+
+-- Counsel: written and read by the entry's owner and by partners the entry was shared with.
+alter table public.counsel enable row level security;
+drop policy if exists counsel_select on public.counsel;
+drop policy if exists counsel_insert on public.counsel;
+drop policy if exists counsel_delete on public.counsel;
+create policy counsel_select on public.counsel for select to authenticated using (public.can_see_entry(entry_id));
+create policy counsel_insert on public.counsel for insert to authenticated with check (author = (select auth.uid()) and public.can_see_entry(entry_id));
+create policy counsel_delete on public.counsel for delete to authenticated using (author = (select auth.uid()) or public.entry_owner(entry_id) = (select auth.uid()));
+
+-- Counsel carries the writer's name as the entry's owner knows them, set here, not by the app.
+create or replace function public.counsel_name() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare o uuid;
+begin
+  if (select count(*) from public.counsel where entry_id = new.entry_id) >= 50 then
+    raise exception 'too_many' using errcode = '22023';
+  end if;
+  o := public.entry_owner(new.entry_id);
+  new.author := auth.uid();
+  new.author_name := case
+    when o = auth.uid() then null
+    else coalesce((select partner_name from public.partners where owner = o and partner = auth.uid()), 'Partner')
+  end;
+  return new;
+end $$;
+drop trigger if exists counsel_name on public.counsel;
+create trigger counsel_name before insert on public.counsel for each row execute function public.counsel_name();
+
+-- Create an invitation link (up to 3 partners, up to 5 open invitations).
+create or replace function public.create_invite(p_role text, p_name text) returns text
+language plpgsql security definer set search_path = public as $$
+declare me uuid := auth.uid(); c text;
+begin
+  if me is null then raise exception 'sign_in' using errcode = '42501'; end if;
+  if p_role not in ('partner', 'pastor') then raise exception 'bad_role' using errcode = '22023'; end if;
+  if char_length(trim(coalesce(p_name, ''))) not between 1 and 40 then raise exception 'name' using errcode = '22023'; end if;
+  if (select count(*) from public.partners where owner = me) >= 3 then raise exception 'max_partners' using errcode = '22023'; end if;
+  if (select count(*) from public.invites where owner = me and used_at is null and expires_at > now()) >= 5 then raise exception 'max_invites' using errcode = '22023'; end if;
+  c := upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 12)); -- built in, works on every Supabase project
+  insert into public.invites (code, owner, owner_name, role) values (c, me, trim(p_name), p_role);
+  return c;
+end $$;
+
+-- What the person opening the link sees before accepting.
+create or replace function public.invite_info(p_code text)
+returns table (owner_name text, role text, status text)
+language sql stable security definer set search_path = public as $$
+  select i.owner_name, i.role,
+    case when i.used_at is not null then 'used'
+         when i.expires_at <= now() then 'expired'
+         when i.owner = auth.uid() then 'self'
+         else 'ok' end
+  from public.invites i where i.code = upper(trim(p_code));
+$$;
+
+create or replace function public.accept_invite(p_code text, p_name text) returns text
+language plpgsql security definer set search_path = public as $$
+declare me uuid := auth.uid(); i public.invites;
+begin
+  if me is null then raise exception 'sign_in' using errcode = '42501'; end if;
+  if char_length(trim(coalesce(p_name, ''))) not between 1 and 40 then raise exception 'name' using errcode = '22023'; end if;
+  select * into i from public.invites where code = upper(trim(p_code)) for update;
+  if not found or i.used_at is not null or i.expires_at <= now() then raise exception 'invalid' using errcode = '22023'; end if;
+  if i.owner = me then raise exception 'self' using errcode = '22023'; end if;
+  if (select count(*) from public.partners where owner = i.owner) >= 3 then raise exception 'max_partners' using errcode = '22023'; end if;
+  if (select count(*) from public.partners where partner = me) >= 50 then raise exception 'max_walking' using errcode = '22023'; end if;
+  insert into public.partners (owner, partner, role, owner_name, partner_name)
+    values (i.owner, me, i.role, i.owner_name, trim(p_name))
+    on conflict (owner, partner) do update set role = excluded.role, partner_name = excluded.partner_name;
+  update public.invites set used_by = me, used_at = now() where code = i.code;
+  return i.owner_name;
+end $$;
+
+revoke all on public.invites, public.partners, public.counsel from anon;
+revoke all on public.invites, public.partners, public.counsel from authenticated;
+grant select, delete on public.invites, public.partners to authenticated;
+grant select, insert, delete on public.counsel to authenticated;
+grant update (shared, shared_at) on public.entries to authenticated;
+
+revoke all on function public.create_invite(text, text), public.accept_invite(text, text), public.invite_info(text),
+  public.is_partner_of(uuid), public.can_see_entry(uuid), public.entry_owner(uuid) from public, anon;
+grant execute on function public.create_invite(text, text), public.accept_invite(text, text), public.invite_info(text),
+  public.is_partner_of(uuid), public.can_see_entry(uuid), public.entry_owner(uuid) to authenticated;
+grant execute on function public.invite_info(text) to anon;

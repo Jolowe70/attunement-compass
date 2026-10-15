@@ -26,7 +26,7 @@ export async function currentUser() {
 }
 export async function onAuth(cb) {
   const c = await sb();
-  const { data } = c.auth.onAuthStateChange((_e, session) => cb(session ? session.user : null));
+  const { data } = c.auth.onAuthStateChange((event, session) => cb(session ? session.user : null, event));
   return () => data.subscription.unsubscribe();
 }
 export async function signIn(email, password) { const c = await sb(); return ok(await c.auth.signInWithPassword({ email, password })); }
@@ -35,6 +35,11 @@ export async function signUp(email, password) {
   return ok(await c.auth.signUp({ email, password, options: { emailRedirectTo: location.origin + "/" } }));
 }
 export async function signInGoogle() { const c = await sb(); ok(await c.auth.signInWithOAuth({ provider: "google", options: { redirectTo: location.origin + "/" } })); }
+export async function resetPassword(email) {
+  const c = await sb();
+  ok(await c.auth.resetPasswordForEmail(email, { redirectTo: location.origin + "/" }));
+}
+export async function updatePassword(password) { const c = await sb(); return ok(await c.auth.updateUser({ password })); }
 export async function signOut() { const c = await sb(); await c.auth.signOut(); }
 
 export async function getJourney() {
@@ -51,10 +56,39 @@ export async function newRound(j) {
   return ok(await c.from("journeys").update({ round: j.round + 1, round_started_at: new Date().toISOString(), rounds_completed: j.rounds_completed + 1 }).eq("user_id", j.user_id).select().single());
 }
 
-export async function listEntries() {
+// Only the person's own entries (entries shared WITH them by others are fetched separately).
+export async function listEntries(userId) {
   const c = await sb();
-  return ok(await c.from("entries").select("*").order("created_at", { ascending: false }).limit(400));
+  return ok(await c.from("entries").select("*").eq("user_id", userId).order("created_at", { ascending: false }).limit(400));
 }
+export async function listSharedWithMe(userId) {
+  const c = await sb();
+  return ok(await c.from("entries").select("id,user_id,created_at,local_date,day_no,domain,pressure,signal,source,my_source,stance,prayer,passages,step,community,step_status,shared_at")
+    .neq("user_id", userId).eq("shared", true).order("created_at", { ascending: false }).limit(200));
+}
+export async function setShared(id, shared) {
+  const c = await sb();
+  return ok(await c.from("entries").update({ shared, shared_at: shared ? new Date().toISOString() : null }).eq("id", id).select().single());
+}
+
+// Discernment partners
+export async function listPartners() { const c = await sb(); return ok(await c.from("partners").select("*").order("created_at")); }
+export async function listInvites() {
+  const c = await sb();
+  return ok(await c.from("invites").select("*").is("used_at", null).gt("expires_at", new Date().toISOString()).order("created_at"));
+}
+export async function createInvite(role, name) { const c = await sb(); return ok(await c.rpc("create_invite", { p_role: role, p_name: name })); }
+export async function cancelInvite(code) { const c = await sb(); ok(await c.from("invites").delete().eq("code", code)); }
+export async function inviteInfo(code) { const c = await sb(); const rows = ok(await c.rpc("invite_info", { p_code: code })); return rows[0] || null; }
+export async function acceptInvite(code, name) { const c = await sb(); return ok(await c.rpc("accept_invite", { p_code: code, p_name: name })); }
+export async function endPartnership(id) { const c = await sb(); ok(await c.from("partners").delete().eq("id", id)); }
+export async function listCounsel(entryIds) {
+  if (!entryIds.length) return [];
+  const c = await sb();
+  return ok(await c.from("counsel").select("*").in("entry_id", entryIds.slice(0, 300)).order("created_at"));
+}
+export async function addCounsel(entryId, body) { const c = await sb(); return ok(await c.from("counsel").insert({ entry_id: entryId, body }).select().single()); }
+export async function deleteCounsel(id) { const c = await sb(); ok(await c.from("counsel").delete().eq("id", id)); }
 export async function addEntry(e) {
   const c = await sb();
   return ok(await c.from("entries").insert(e).select().single());
@@ -66,6 +100,8 @@ export async function setStep(id, status) {
 export async function deleteEntry(id) { const c = await sb(); ok(await c.from("entries").delete().eq("id", id)); }
 export async function deleteEverything(userId) {
   const c = await sb();
+  ok(await c.from("invites").delete().eq("owner", userId));
+  ok(await c.from("partners").delete().eq("owner", userId));
   ok(await c.from("entries").delete().eq("user_id", userId));
   ok(await c.from("reflections").delete().eq("user_id", userId));
   ok(await c.from("journeys").delete().eq("user_id", userId));
