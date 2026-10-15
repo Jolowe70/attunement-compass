@@ -2,6 +2,9 @@
 // Spanish, French, Yoruba, Igbo and Hausa need a native speaker's review (see TRANSLATION-REVIEW.md).
 export const JOURNEY = {
   en: {
+    emailTitle: "Email notices",
+    emailToggle: "Email me when a partner shares a signal or writes to me",
+    emailNote: "Emails never include what was written, only a link back here.",
     done: "Done",
     partnersTitle: "Your discernment partners",
     partnersWhy: "The fourth test asks whether a signal can stand in the light of the body of Christ. Invite one to three trusted believers, or your pastor. They see only the entries you choose to share, and can answer with a word of counsel.",
@@ -145,6 +148,9 @@ export const JOURNEY = {
     step: "Step",
   },
   es: {
+    emailTitle: "Avisos por correo",
+    emailToggle: "Envíame un correo cuando un compañero comparta una señal o me escriba",
+    emailNote: "Los correos nunca incluyen lo que se escribió, solo un enlace para volver aquí.",
     done: "Listo",
     partnersTitle: "Tus compañeros de discernimiento",
     partnersWhy: "La cuarta prueba pregunta si una señal puede resistir a la luz del cuerpo de Cristo. Invita de uno a tres creyentes de confianza, o a tu pastor. Solo ven las entradas que decidas compartir y pueden responder con una palabra de consejo.",
@@ -287,6 +293,9 @@ export const JOURNEY = {
     step: "Paso",
   },
   fr: {
+    emailTitle: "Avis par e-mail",
+    emailToggle: "M'envoyer un e-mail quand un partenaire partage un signal ou m'écrit",
+    emailNote: "Les e-mails ne contiennent jamais ce qui a été écrit, seulement un lien pour revenir ici.",
     done: "Terminé",
     partnersTitle: "Vos partenaires de discernement",
     partnersWhy: "Le quatrième test demande si un signal peut tenir à la lumière du corps de Christ. Invitez un à trois croyants de confiance, ou votre pasteur. Ils ne voient que les entrées que vous choisissez de partager et peuvent répondre par une parole de conseil.",
@@ -429,6 +438,9 @@ export const JOURNEY = {
     step: "Pas",
   },
   yo: {
+    emailTitle: "Ìfitónilétí ímeèlì",
+    emailToggle: "Fi ímeèlì ránṣẹ́ sí mi nígbà tí alábàáṣiṣẹ́ bá pín àmì kan tàbí kọ̀wé sí mi",
+    emailNote: "Ímeèlì kò ní ní ohun tí a kọ rárá, ìjápọ̀ láti padà síbí nìkan.",
     done: "Ó ti parí",
     partnersTitle: "Àwọn alábàáṣiṣẹ́ ìfòyemọ̀ rẹ",
     partnersWhy: "Ìdánwò kẹrin ń bèèrè bóyá àmì kan lè dúró nínú ìmọ́lẹ̀ ara Kristi. Pe onígbàgbọ́ kan sí mẹ́ta tí o fọkàn tán, tàbí pásítọ̀ rẹ. Wọn yóò rí àkọsílẹ̀ tí o bá yàn láti pín nìkan, wọ́n sì lè fi ọ̀rọ̀ ìmọ̀ràn dáhùn.",
@@ -571,6 +583,9 @@ export const JOURNEY = {
     step: "Ìgbésẹ̀",
   },
   ig: {
+    emailTitle: "Ọkwa email",
+    emailToggle: "Zitere m email mgbe onye ibe kekọrịtara akara ma ọ bụ degaara m ozi",
+    emailNote: "Email anaghị enwe ihe e dere, naanị njikọ ilaghachi ebe a.",
     done: "Emechaala",
     partnersTitle: "Ndị ibe gị na nghọta",
     partnersWhy: "Nnwale nke anọ na-ajụ ma akara nwere ike iguzo n'ìhè nke ahụ Kraịst. Kpọọ otu ruo atọ ndị kwere ekwe ị tụkwasịrị obi, ma ọ bụ pastọ gị. Ha na-ahụ naanị ndekọ ị họọrọ ịkekọrịta, ha nwekwara ike iji okwu ndụmọdụ zaa.",
@@ -713,6 +728,9 @@ export const JOURNEY = {
     step: "Nzọụkwụ",
   },
   ha: {
+    emailTitle: "Sanarwar imel",
+    emailToggle: "Aika mini imel idan aboki ya raba alama ko ya rubuta mini",
+    emailNote: "Imel ba ya ƙunshe da abin da aka rubuta, sai dai hanyar haɗi don dawowa nan.",
     done: "An gama",
     partnersTitle: "Abokan fahimtarka",
     partnersWhy: "Gwaji na huɗu yana tambaya ko alama za ta iya tsayawa a hasken jikin Kristi. Gayyaci amintattun muminai ɗaya zuwa uku, ko fastonka. Suna ganin rubutun da ka zaɓi ka raba kawai, kuma za su iya amsa da kalmar shawara.",

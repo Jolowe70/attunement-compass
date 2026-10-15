@@ -16,7 +16,10 @@ export function CounselThread({ J, me, entryId, items, canWrite, isOwner, onChan
     e.preventDefault();
     if (!text.trim()) return;
     setBusy(true); setErr("");
-    try { await DB.addCounsel(entryId, text.trim().slice(0, 1000)); setText(""); await onChanged(); }
+    try {
+      const row = await DB.addCounsel(entryId, text.trim().slice(0, 1000));
+      setText(""); DB.notify("counsel", { counsel_id: row.id }); await onChanged();
+    }
     catch (x) { setErr(J.errorLoad); }
     setBusy(false);
   }
@@ -218,6 +221,23 @@ export function WalkingWith({ T, J, me, walking, shared, counsel, reload }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// "Email me when…" — on by default; anyone can turn it off.
+export function EmailNotices({ J }) {
+  const [on, setOn] = useState(null);
+  useEffect(() => { DB.getEmailPref().then(setOn).catch(() => setOn(true)); }, []);
+  async function change(v) { setOn(v); try { await DB.setEmailPref(v); } catch (x) { setOn(!v); } }
+  if (on === null) return null;
+  return (
+    <div style={{ ...S.card(), padding: "16px 20px" }} data-testid="emailnotices">
+      <div style={S.label}>{J.emailTitle}</div>
+      <label style={{ display: "flex", gap: 10, alignItems: "flex-start", fontSize: 14, color: "#B8C9E0", cursor: "pointer" }}>
+        <input type="checkbox" checked={on} onChange={(e) => change(e.target.checked)} style={{ marginTop: 4 }} data-testid="emailtoggle" /> {J.emailToggle}
+      </label>
+      <p style={{ ...S.small, marginTop: 6 }}>{J.emailNote}</p>
     </div>
   );
 }

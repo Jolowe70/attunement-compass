@@ -269,3 +269,39 @@ revoke all on function public.create_invite(text, text), public.accept_invite(te
 grant execute on function public.create_invite(text, text), public.accept_invite(text, text), public.invite_info(text),
   public.is_partner_of(uuid), public.can_see_entry(uuid), public.entry_owner(uuid) to authenticated;
 grant execute on function public.invite_info(text) to anon;
+
+-- ============================================================================
+-- COMPASS-04 · Email notices
+-- When a signal is shared, partners get a short email; when counsel is written, the other side does.
+-- Emails never contain the signal or the counsel itself, only a link back. Anyone can turn them off.
+
+create table if not exists public.email_prefs (
+  user_id uuid primary key default auth.uid() references auth.users(id) on delete cascade,
+  notify boolean not null default true,
+  updated_at timestamptz not null default now()
+);
+alter table public.email_prefs enable row level security;
+drop policy if exists email_prefs_own on public.email_prefs;
+create policy email_prefs_own on public.email_prefs for all to authenticated
+  using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
+revoke all on public.email_prefs from anon;
+grant select, insert, update on public.email_prefs to authenticated;
+
+-- A log of notices sent, read only by the server (no policies: signed-in users cannot see or change it).
+create table if not exists public.notices (
+  id bigserial primary key,
+  actor uuid references auth.users(id) on delete cascade,
+  recipient uuid references auth.users(id) on delete cascade,
+  kind text not null check (kind in ('share', 'counsel')),
+  ref uuid,
+  sent_at timestamptz not null default now()
+);
+create index if not exists notices_recent on public.notices (recipient, kind, ref, sent_at desc);
+create index if not exists notices_actor on public.notices (actor, sent_at desc);
+alter table public.notices enable row level security;
+revoke all on public.notices from anon, authenticated;
+
+-- The server's role (used only by the notice function in Netlify).
+grant select on public.entries, public.partners, public.journeys, public.counsel, public.email_prefs to service_role;
+grant select, insert on public.notices to service_role;
+grant usage, select on sequence public.notices_id_seq to service_role;

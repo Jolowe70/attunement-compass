@@ -3,12 +3,14 @@ export const handler = async () => ({
   statusCode: 200,
   headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
   body: JSON.stringify({
-    ok: true, app: 'attunement-compass', build: 'COMPASS-03', node: process.version,
+    ok: true, app: 'attunement-compass', build: 'COMPASS-04', node: process.version,
     model: process.env.COMPASS_MODEL || 'claude-haiku-4-5 (default)',
     supabase: 'etmkqtddanvxdiicofbf (built in; VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY override it)',
     env: {
       ANTHROPIC_API_KEY: !!process.env.ANTHROPIC_API_KEY,
-      COMPASS_MODEL: !!process.env.COMPASS_MODEL
+      COMPASS_MODEL: !!process.env.COMPASS_MODEL,
+      SUPABASE_SERVICE_ROLE_KEY: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+      RESEND_API_KEY: !!process.env.RESEND_API_KEY
     }
   })
 });

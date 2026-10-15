@@ -704,6 +704,8 @@ export default function App() {
     // A password-reset link: read it from the address, because the library may announce it before we listen.
     if (/type=recovery/.test(back)) setRecovery(true);
     if (inviteCode) setView("journey");
+    // From an email notice: open the journey, then tidy the address.
+    if (/[?&]open=journey/.test(location.search)) { setView("journey"); history.replaceState(null, "", location.pathname); }
     DB.onAuth((u, event) => {
       setUser(u);
       if (event === "PASSWORD_RECOVERY") { setRecovery(true); setView("journey"); }
@@ -783,14 +785,16 @@ export default function App() {
     if (!user || !saveOn) return;
     const st = jstate;
     try {
-      await DB.addEntry({
+      const shareIt = shareOn && ownedPartners > 0;
+      const row = await DB.addEntry({
         local_date: localDate(), round: journey ? journey.round : 1, day_no: st && !st.complete ? st.day : null,
         mode: session.mode || "guided", domain: session.domain || "", pressure: session.pressure || "", signal: session.signal,
         source: analysisData ? analysisData.source : null, my_source: mySource, summary: analysisData ? analysisData.summary : null,
         tests: analysisData ? analysisData.tests : null, my_tests: session.mode !== "guided" ? myTests : null,
         stance: r.stance, prayer: r.prayer, passages: r.passages, step: r.step, community: r.community,
-        shared: shareOn && ownedPartners > 0, shared_at: shareOn && ownedPartners > 0 ? new Date().toISOString() : null,
+        shared: shareIt, shared_at: shareIt ? new Date().toISOString() : null,
       });
+      if (shareIt && row) DB.notify("share", { entry_id: row.id });
       setSaveMsg(J.saved);
       reloadJourney();
     } catch (e) {

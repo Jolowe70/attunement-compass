@@ -3,7 +3,7 @@ import * as DB from "./supa.js";
 import { journeyState, weekEntries, pendingStep, patterns, DOMAIN_KEYS, localDate } from "./journey.js";
 import PassageCard, { lookupPassages } from "./PassageCard.jsx";
 import { fmt } from "./strings-journey.js";
-import { PartnersCard, InviteAccept, WalkingWith, CounselThread } from "./Partners.jsx";
+import { PartnersCard, InviteAccept, WalkingWith, CounselThread, EmailNotices } from "./Partners.jsx";
 
 // Exact King James words used on these screens.
 export const ROMANS_8_1 = { ref: "Romans 8:1", text: "There is therefore now no condemnation to them which are in Christ Jesus, who walk not after the flesh, but after the Spirit." };
@@ -177,7 +177,12 @@ function EntryRow({ e, T, J, me, onDelete, canShare, counsel, reload }) {
   const [busy, setBusy] = useState(false);
   async function toggleShare() {
     setBusy(true);
-    try { await DB.setShared(e.id, !e.shared); await reload(); } catch (x) { /* shown on next load */ }
+    try {
+      const nowShared = !e.shared;
+      await DB.setShared(e.id, nowShared);
+      if (nowShared) DB.notify("share", { entry_id: e.id });
+      await reload();
+    } catch (x) { /* shown on next load */ }
     setBusy(false);
   }
   const src = e.my_source || e.source;
@@ -377,6 +382,7 @@ export default function JourneyView({ T, J, lang, user, journey, entries, loadin
       )}
 
       {user && !loading && <PartnersCard J={J} owned={owned} invites={invites} defaultName={journey && journey.display_name} reload={reload} />}
+      {user && !loading && (owned.length > 0 || walking.length > 0) && <EmailNotices J={J} />}
 
       {user && !loading && (
         <div style={S.card()}>

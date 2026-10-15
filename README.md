@@ -46,6 +46,37 @@ The ebook says to use the Compass daily for at least thirty days, and that the t
 - **Forgot password?** sends a reset link. Unknown emails get the same message, so no one can find out who has an account. The link opens a "Set a new password" screen.
 - The guide function now uses Node `https`, retries once quietly on a timeout, and has `/api/health`.
 
+## COMPASS-04 · Email notices
+
+- **Who gets an email:**
+  - when someone shares a signal, each partner;
+  - when counsel is written, the other side (the person, or their partners).
+- **Emails never include the signal or the counsel**, only a link back (`/?open=journey`). Email can be read by others.
+- **No floods:**
+  - at most one email per shared signal per person a day;
+  - for counsel on the same signal, at most one every 30 minutes;
+  - no more than 40 emails a day caused by any one person.
+- **Off switch:** anyone with a partner sees **Email notices** in My Journey and can turn them off.
+- **Language:** each email goes in the recipient's chosen language.
+- **Checks before sending.** The server (`netlify/functions/notify.mjs`) confirms that:
+  - the request comes from a signed-in person;
+  - the event really happened, was theirs, and happened in the last 15 minutes;
+  - every recipient is a real partner.
+
+  So no one can use it to send email to strangers.
+
+**Setup**
+1. Run `supabase/compass-schema.sql` again (safe to run again).
+2. In Netlify, add two environment variables, then redeploy:
+
+   | Variable | Where to find it |
+   |---|---|
+   | `SUPABASE_SERVICE_ROLE_KEY` | Supabase → Project Settings → API Keys → the **service_role** (secret) key. Keep it only in Netlify, never in the app or a chat. |
+   | `RESEND_API_KEY` | Resend → API Keys. Create a new key, e.g. "Compass notices", with sending access only. |
+
+   Optional: `NOTIFY_FROM` (default `The Attunement Compass <no-reply@attunementcompass.com>`).
+3. Check `/api/health`: it should show `COMPASS-04`, with both keys true.
+
 ## COMPASS-03 · Discernment partners
 
 The fourth test asks whether a signal can stand in the light of the body of Christ. This build makes that test real.

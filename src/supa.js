@@ -116,3 +116,22 @@ export async function saveReflection(round, week, body) {
   const c = await sb();
   return ok(await c.from("reflections").insert({ round, week, body }).select().single());
 }
+
+// Email notices (COMPASS-04). Sent by the server; the app only says what just happened.
+export async function notify(kind, ids) {
+  try {
+    const c = await sb();
+    const { data } = await c.auth.getSession();
+    if (!data.session) return;
+    await fetch("/api/notify", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + data.session.access_token }, body: JSON.stringify({ kind, ...ids }) });
+  } catch (e) { /* a notice is a courtesy; never block the person */ }
+}
+export async function getEmailPref() {
+  const c = await sb();
+  const rows = ok(await c.from("email_prefs").select("notify").limit(1));
+  return rows[0] ? rows[0].notify : true;
+}
+export async function setEmailPref(on) {
+  const c = await sb();
+  ok(await c.from("email_prefs").upsert({ notify: on, updated_at: new Date().toISOString() }));
+}
